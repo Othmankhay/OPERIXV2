@@ -1,0 +1,48 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'DM Sans', 'Segoe UI', sans-serif;
+  background: #f0f2f5;
+  color: #1a202c;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+input, select, button {
+  font-family: 'DM Sans', 'Segoe UI', sans-serif;
+}
+
+/* Responsive UI scaling to enlarge text & layout */
+@media screen and (min-width: 1600px) {
+  body { zoom: 1.15; }
+}
+@media screen and (min-width: 1300px) and (max-width: 1599px) {
+  body { zoom: 1.05; }
+}
+@media screen and (max-width: 1024px) {
+  body { zoom: 0.9; }
+}
+@media screen and (max-width: 768px) {
+  body { zoom: 0.8; }
+}
