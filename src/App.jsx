@@ -3,7 +3,6 @@ import { STATUT_CONFIG, PROJETS, ALL_COLUMNS, DEFAULT_VISIBLE, MOCK_DATA, TOAST_
 import PageGraphique from "./PageGraphique";
 import PageJournal from "./PageJournal";
 import FicheFournisseur from "./FicheFournisseur";
-import PageJalons from "./PageJalons";
 import PageOTD from "./PageOTD";
 import PageRFT from "./PageRFT";
 import SplashScreen from "./SplashScreen";
@@ -847,7 +846,6 @@ function ProcureApp() {
     if (activePage === "export") return "Export";
     if (activePage === "graphique") return "Graphique";
     if (activePage === "journal") return "Journal imports";
-    if (activePage === "jalons") return "Jalons";
     if (activePage === "otd") return "OTD";
     if (activePage === "rapport-impact") return "Rapport d'impact";
     if (activePage === "rapport-rft") return "Rapport RFT";
@@ -1326,7 +1324,6 @@ function ProcureApp() {
           {activePage === "export" && <PageExport filteredCount={filtered.length} totalCount={MOCK_DATA.length} />}
           {activePage === "graphique" && <PageGraphique />}
           {activePage === "journal" && <PageJournal />}
-          {activePage === "jalons" && <PageJalons />}
           {activePage === "otd" && <PageOTD />}
           {activePage === "rapport-rft" && <PageRFT />}
 
@@ -1479,7 +1476,7 @@ function ProcureApp() {
               <div style={{ flex: 1, padding: "0 20px 20px 20px", display: "flex", flexDirection: "column", overflow: "hidden" }}>
                 {/* Table with freeze frame logic */}
                 <div style={{ flex: 1, overflowX: "auto", overflowY: "auto", background: "#fff", borderRadius: 12, border: "1px solid #e2e8f0", position: "relative" }}>
-                  <table style={{ minWidth: 1000, width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                     <thead style={{ position: "sticky", top: 0, zIndex: 3, background: "#f8fafc", boxShadow: "0 2px 4px rgba(0,0,0,0.02)" }}>
                       <tr>
                       <th style={{ position: "sticky", left: 0, zIndex: 3, padding: "10px 12px", borderBottom: "1px solid #e2e8f0", background: "#f8fafc", borderRight: frozenUpTo === "" ? "1px solid #e2e8f0" : "none" }}>
@@ -1489,22 +1486,30 @@ function ProcureApp() {
                       {visibleCols.map((key, colIdx) => {
                         const col = ALL_COLUMNS.find(c => c.key === key);
                         if (!col) return null;
-
-                        const isMobile = window.innerWidth < 768;
-                        const frozenCols = !isMobile && frozenUpTo ? visibleCols.slice(0, visibleCols.indexOf(frozenUpTo) + 1) : [];
-                        const isFrozen = frozenCols.includes(key);
-                        const leftOffset = getLeftOffset(visibleCols, key);
-                        const isLastFrozen = isFrozen && colIdx === frozenCols.length - 1;
+                        
+                        const colWidth = COL_WIDTHS[key] || 120;
+                        const isFrozen = frozenUpTo && visibleCols.indexOf(key) <= visibleCols.indexOf(frozenUpTo);
+                        const isLastFrozen = isFrozen && key === frozenUpTo;
 
                         return (
                           <th key={key} style={{ 
-                            padding: "10px 14px", textAlign: "left", color: "#475569", fontWeight: 600, fontSize: 12, 
-                            borderBottom: "1px solid #e2e8f0", whiteSpace: "nowrap", textTransform: "uppercase", 
-                            letterSpacing: 0.3, background: "#f8fafc",
+                            width: colWidth,
+                            minWidth: colWidth,
+                            maxWidth: colWidth,
+                            padding: "10px 14px", 
+                            textAlign: "left", 
+                            color: "#475569", 
+                            fontWeight: 600, 
+                            fontSize: 12, 
+                            borderBottom: "1px solid #e2e8f0", 
+                            whiteSpace: "nowrap", 
+                            textTransform: "uppercase", 
+                            letterSpacing: 0.3, 
+                            background: "#f8fafc",
                             position: isFrozen ? "sticky" : "relative",
-                            left: isFrozen ? leftOffset : "auto",
+                            left: isFrozen ? getLeftOffset(visibleCols, key) : "auto",
                             zIndex: isFrozen ? 3 : 1,
-                            borderRight: isLastFrozen ? "2px solid #cbd5e1" : "none"
+                            borderRight: isLastFrozen ? "2px solid #cbd5e1" : "1px solid #e2e8f0"
                           }}>{col.label}</th>
                         );
                       })}
@@ -1523,29 +1528,31 @@ function ProcureApp() {
                           onMouseEnter={e => { if (!isSelected && !colorLines) e.currentTarget.style.background = "#f8fafc"; }}
                           onMouseLeave={e => { if (!isSelected && !colorLines) e.currentTarget.style.background = i % 2 === 1 ? "#fafbfc" : "#fff"; }}>
                           <td style={{ 
-                            position: "sticky", left: 0, zIndex: 2, padding: "10px 12px", 
+                            position: "sticky", left: 0, zIndex: 2, width: 40, minWidth: 40, maxWidth: 40, padding: "10px 12px", 
                             borderBottom: colorLines ? `1px solid ${sc.dot}22` : "1px solid #f1f5f9", 
                             background: rowBg, 
-                            borderRight: frozenUpTo === "" ? "1px solid #e2e8f0" : "none" 
+                            borderRight: "1px solid #e2e8f0",
+                            textAlign: "center"
                           }}>
                             <input type="checkbox" checked={isSelected} onChange={() => setSelectedRows(prev => isSelected ? prev.filter(x => x !== row.id) : [...prev, row.id])} />
                           </td>
                           {visibleCols.map((key, colIdx) => {
-                            const isMobile = window.innerWidth < 768;
-                            const frozenCols = !isMobile && frozenUpTo ? visibleCols.slice(0, visibleCols.indexOf(frozenUpTo) + 1) : [];
-                            const isFrozen = frozenCols.includes(key);
-                            const leftOffset = getLeftOffset(visibleCols, key);
-                            const isLastFrozen = isFrozen && colIdx === frozenCols.length - 1;
+                            const colWidth = COL_WIDTHS[key] || 120;
+                            const isFrozen = frozenUpTo && visibleCols.indexOf(key) <= visibleCols.indexOf(frozenUpTo);
+                            const isLastFrozen = isFrozen && key === frozenUpTo;
                             
                             const cellStyle = {
+                              width: colWidth,
+                              minWidth: colWidth,
+                              maxWidth: colWidth,
                               padding: "10px 14px",
                               borderBottom: colorLines ? `1px solid ${sc.dot}22` : "1px solid #f1f5f9",
                               whiteSpace: "nowrap",
                               position: isFrozen ? "sticky" : "relative",
-                              left: isFrozen ? leftOffset : "auto",
+                              left: isFrozen ? getLeftOffset(visibleCols, key) : "auto",
                               zIndex: isFrozen ? 2 : 0,
-                              background: rowBg, // Essential when colorLines or selected
-                              borderRight: isLastFrozen ? "2px solid #cbd5e1" : "none"
+                              background: rowBg,
+                              borderRight: isLastFrozen ? "2px solid #cbd5e1" : "1px solid #e2e8f0"
                             };
 
                             if (key === "statut") {

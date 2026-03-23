@@ -11,11 +11,9 @@ export const STATUT_CONFIG = {
 };
 
 export const PROJETS = {
-  "Multi Projets":  ["P512 SX", "P514 LX", "P520 MX"],
+  "Projet - GA ":  ["P512 SX", "P514 LX", "P520 MX"],
   "Vie Série":      ["P610 VS", "P612 VS", "P615 VS"],
-  "Ferrage Projet": ["P312 FP", "P315 FP"],
-  "OV Projet":      ["P420 OV", "P422 OV", "P430 OV"],
-  "Ex-FCA":         ["P580 FCA", "P582 FCA"],
+  "Projet - BIW": ["P312 FP", "P315 FP"],
 };
 
 export const ALL_COLUMNS = [
@@ -74,7 +72,7 @@ const SITES = ['Poissy', 'Mulhouse', 'Sochaux', 'Rennes', 'Valenciennes'];
 const DOMAINES = ['Mécanique', 'Roulement', 'Étanchéité', 'Électrique', 'Tôlerie', 'Pneumatique', 'Câblage', 'Visserie', 'Tuyauterie', 'Motorisation'];
 
 export const MOCK_DATA = Array.from({ length: 100 }, (_, i) => {
-  const nomProjet = PROJETS_KEYS[i % 5];
+  const nomProjet = PROJETS_KEYS[i % PROJETS_KEYS.length];
   const sousProjet = PROJETS[nomProjet][i % PROJETS[nomProjet].length];
   
   return {
@@ -134,5 +132,4 @@ export const SIDEBAR_ITEMS = [
   { icon: "📤", label: "Export", type: "page", page: "export" },
   { icon: "📈", label: "Graphique", type: "page", page: "graphique" },
   { icon: "📋", label: "Journal imports", type: "page", page: "journal" },
-  { icon: "🚩", label: "Jalons", type: "page", page: "jalons" },
 ];

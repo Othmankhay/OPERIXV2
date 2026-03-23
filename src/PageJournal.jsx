@@ -8,7 +8,7 @@ const IMPORTS_DATA = [
   { id: "IMP-005", type: "SAP", date: "2025-05-12", heure: "16:20", par: "S. Petit", lignes: 34, statut: "Erreur", desc: "Échec connexion SAP — timeout serveur", log: "import_005.txt" },
   { id: "IMP-006", type: "CSV", date: "2025-05-12", heure: "11:00", par: "A. Martin", lignes: 178, statut: "Succès", desc: "Import fournisseurs Ferrage Projet", log: "import_006.txt" },
   { id: "IMP-007", type: "Excel", date: "2025-05-11", heure: "09:00", par: "L. Bernard", lignes: 95, statut: "Partiel", desc: "Import partiel — codes fournisseurs manquants", log: "import_007.txt" },
-  { id: "IMP-008", type: "SAP", date: "2025-05-10", heure: "07:45", par: "M. Dupont", lignes: 312, statut: "Succès", desc: "Synchronisation complète OV Projet", log: "import_008.txt" },
+  { id: "IMP-008", type: "SAP", date: "2025-05-10", heure: "07:45", par: "M. Dupont", lignes: 312, statut: "Succès", desc: "Synchronisation complète", log: "import_008.txt" },
 ];
 
 const STATUT_STYLE = {
