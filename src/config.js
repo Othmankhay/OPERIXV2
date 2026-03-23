@@ -66,6 +66,7 @@ const STATUTS_DISTRIBUTION = [
   'Faux manquant',
   'Manquants Plus',
 ];
+
 const FOURNISSEURS = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta'];
 const USERS = ['Dupont M.', 'Martin L.', 'Leroy J.', 'Bernard A.', 'Moreau C.', 'Simon P.', 'Petit R.', 'Durand H.'];
 const SITES = ['Poissy', 'Mulhouse', 'Sochaux', 'Rennes', 'Valenciennes'];
