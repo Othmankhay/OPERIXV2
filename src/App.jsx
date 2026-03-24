@@ -45,7 +45,7 @@ const MOCK_RAPPORT_IMPACT = [
 ];
 
 /* ─── Dashboard page ────────────────────────────────── */
-function PageDashboard({ data, onFilter, onSetFournisseur, onSetProjet, onSearch }) {
+function PageDashboard({ data, onFilter, onSetFournisseur, onSearch }) {
   const [graphProject, setGraphProject] = useState("Tous");
   const [hiddenSeries, setHiddenSeries] = useState([]);
 
@@ -773,6 +773,7 @@ function ProcureApp() {
 
   // Toast init
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setToasts(TOAST_CONFIGS.map((t, i) => ({ ...t, id: i })));
   }, []);
 
@@ -1483,7 +1484,7 @@ function ProcureApp() {
                         <input type="checkbox" checked={selectedRows.length === paged.length && paged.length > 0}
                           onChange={() => setSelectedRows(selectedRows.length === paged.length ? [] : paged.map(d => d.id))} />
                       </th>
-                      {visibleCols.map((key, colIdx) => {
+                      {visibleCols.map((key) => {
                         const col = ALL_COLUMNS.find(c => c.key === key);
                         if (!col) return null;
                         
@@ -1536,7 +1537,7 @@ function ProcureApp() {
                           }}>
                             <input type="checkbox" checked={isSelected} onChange={() => setSelectedRows(prev => isSelected ? prev.filter(x => x !== row.id) : [...prev, row.id])} />
                           </td>
-                          {visibleCols.map((key, colIdx) => {
+                          {visibleCols.map((key) => {
                             const colWidth = COL_WIDTHS[key] || 120;
                             const isFrozen = frozenUpTo && visibleCols.indexOf(key) <= visibleCols.indexOf(frozenUpTo);
                             const isLastFrozen = isFrozen && key === frozenUpTo;
