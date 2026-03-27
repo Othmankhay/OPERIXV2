@@ -46,11 +46,15 @@ const MOCK_RAPPORT_IMPACT = [
 ];
 
 /* ─── Dashboard page ────────────────────────────────── */
-function PageDashboard({ data, onFilter, onSetFournisseur, onSearch }) {
+function PageDashboard({ data, previousData, onFilter, onSetFournisseur, onSearch }) {
   const [graphProject, setGraphProject] = useState("Tous");
   const [hiddenSeries, setHiddenSeries] = useState([]);
+  const [showComparison, setShowComparison] = useState(true);
 
   const filteredData = graphProject === "Tous" ? data : data.filter(d => d.nomProjet === graphProject);
+  const filteredPrev = previousData
+    ? (graphProject === "Tous" ? previousData : previousData.filter(d => d.nomProjet === graphProject))
+    : null;
   
   const counts = { total: filteredData.length, critiques: 0, retards: 0, enCours: 0, recus: 0 };
   filteredData.forEach(d => {
@@ -59,13 +63,34 @@ function PageDashboard({ data, onFilter, onSetFournisseur, onSearch }) {
     if (d.statut === "En cours") counts.enCours++;
     if (d.statut === "Reçu") counts.recus++;
   });
+  // Previous counts for delta
+  const prevCounts = filteredPrev ? (() => {
+    const c = { total: filteredPrev.length, critiques: 0, retards: 0, enCours: 0, recus: 0, pointDur: 0 };
+    filteredPrev.forEach(d => {
+      if (d.statut === "Manquants Plus") c.critiques++;
+      if (d.statut === "Retard") c.retards++;
+      if (d.statut === "En cours") c.enCours++;
+      if (d.statut === "Reçu") c.recus++;
+      if (d.statut === "Point dur") c.pointDur++;
+    });
+    return c;
+  })() : null;
+
+  const makeDelta = (current, previous, lowerIsBetter = false) => {
+    if (!previous && previous !== 0) return null;
+    const diff = current - previous;
+    if (diff === 0) return null;
+    const positive = lowerIsBetter ? diff < 0 : diff > 0;
+    return { diff, positive, label: diff > 0 ? `+${diff}` : `${diff}` };
+  };
+
   const kpis = [
-    { label: "Total", value: counts.total, icon: "📦", bg: "#f0f4ff", color: "#1a2744", filter: "" },
-    { label: "Manquants Plus", value: counts.critiques, icon: "🔴", bg: "#fff1f1", color: "#dc2626", filter: "Manquants Plus" },
-    { label: "Points durs", value: filteredData.filter(d => d.statut === "Point dur").length, icon: "🟣", bg: "#f3e8fd", color: "#7d3c98", filter: "Point dur" },
-    { label: "Retards", value: counts.retards, icon: "🟠", bg: "#fffbeb", color: "#d97706", filter: "Retard" },
-    { label: "En cours", value: counts.enCours, icon: "🟢", bg: "#f0fdf4", color: "#1e8449", filter: "En cours" },
-    { label: "Reçus", value: counts.recus, icon: "✅", bg: "#eff6ff", color: "#2e86c1", filter: "Reçu" },
+    { label: "Total", value: counts.total, icon: "📦", bg: "#f0f4ff", color: "#1a2744", filter: "", delta: makeDelta(counts.total, prevCounts?.total) },
+    { label: "Manquants Plus", value: counts.critiques, icon: "🔴", bg: "#fff1f1", color: "#dc2626", filter: "Manquants Plus", delta: makeDelta(counts.critiques, prevCounts?.critiques, true) },
+    { label: "Points durs", value: filteredData.filter(d => d.statut === "Point dur").length, icon: "🟣", bg: "#f3e8fd", color: "#7d3c98", filter: "Point dur", delta: makeDelta(filteredData.filter(d => d.statut === "Point dur").length, prevCounts?.pointDur, true) },
+    { label: "Retards", value: counts.retards, icon: "🟠", bg: "#fffbeb", color: "#d97706", filter: "Retard", delta: makeDelta(counts.retards, prevCounts?.retards, true) },
+    { label: "En cours", value: counts.enCours, icon: "🟢", bg: "#f0fdf4", color: "#1e8449", filter: "En cours", delta: makeDelta(counts.enCours, prevCounts?.enCours) },
+    { label: "Reçus", value: counts.recus, icon: "✅", bg: "#eff6ff", color: "#2e86c1", filter: "Reçu", delta: makeDelta(counts.recus, prevCounts?.recus) },
   ];
 
   const otdPercent = counts.total ? Math.round((counts.recus / counts.total) * 100) : 0;
@@ -183,15 +208,78 @@ function PageDashboard({ data, onFilter, onSetFournisseur, onSearch }) {
           onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-3px)"; e.currentTarget.style.boxShadow = "0 8px 16px rgba(0,0,0,0.08)"; }}
           onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = "0 2px 4px rgba(0,0,0,0.02)"; }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div>
+              <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, color: "#64748b", fontWeight: 600, marginBottom: 4 }}>{k.label}</div>
-                <div style={{ fontSize: 28, fontWeight: 700, color: k.color }}>{k.value}</div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: k.color }}>{k.value}</div>
+                  {k.delta && (
+                    <div style={{
+                      fontSize: 11, fontWeight: 700,
+                      color: k.delta.positive ? "#16a34a" : "#dc2626",
+                      background: k.delta.positive ? "#f0fdf4" : "#fef2f2",
+                      padding: "2px 6px", borderRadius: 8,
+                    }}>
+                      {k.delta.label} {k.delta.positive ? "▲" : "▼"}
+                    </div>
+                  )}
+                </div>
+                {k.delta && (
+                  <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>vs import précédent</div>
+                )}
               </div>
               <span style={{ fontSize: 22 }}>{k.icon}</span>
             </div>
           </div>
         ))}
       </div>
+
+      {/* Comparison panel */}
+      {previousData && showComparison && (
+        <div style={{ background: "#1a2744", borderRadius: 12, padding: "14px 20px", marginBottom: 16, color: "#fff" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 14 }}>⇄</span>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>Comparaison — Avant / Après import</span>
+              <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 500 }}>
+                {previousData.length} lignes → {data.length} lignes
+              </span>
+            </div>
+            <button onClick={() => setShowComparison(false)}
+              style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {[
+              { label: "Total", prev: prevCounts?.total, curr: counts.total, lowerBetter: false },
+              { label: "Manquants Plus", prev: prevCounts?.critiques, curr: counts.critiques, lowerBetter: true },
+              { label: "Point dur", prev: prevCounts?.pointDur, curr: filteredData.filter(d => d.statut === "Point dur").length, lowerBetter: true },
+              { label: "Retard", prev: prevCounts?.retards, curr: counts.retards, lowerBetter: true },
+              { label: "En cours", prev: prevCounts?.enCours, curr: counts.enCours, lowerBetter: false },
+              { label: "Reçu", prev: prevCounts?.recus, curr: counts.recus, lowerBetter: false },
+            ].map(item => {
+              const diff = item.curr - item.prev;
+              const improved = item.lowerBetter ? diff < 0 : diff > 0;
+              const neutral  = diff === 0;
+              const clr = neutral ? "#94a3b8" : improved ? "#4ade80" : "#f87171";
+              return (
+                <div key={item.label} style={{ background: "#ffffff0f", borderRadius: 8, padding: "8px 14px", minWidth: 130 }}>
+                  <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 600, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>{item.label}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 13, color: "#94a3b8" }}>{item.prev}</span>
+                    <span style={{ fontSize: 11, color: "#475569" }}>→</span>
+                    <span style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>{item.curr}</span>
+                    {!neutral && (
+                      <span style={{ fontSize: 11, fontWeight: 700, color: clr }}>
+                        {diff > 0 ? "+" : ""}{diff} {improved ? "▲" : "▼"}
+                      </span>
+                    )}
+                    {neutral && <span style={{ fontSize: 11, color: "#64748b" }}>—</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Ligne 2 - 3 Nouvelles Cartes */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16, marginBottom: 28 }}>
@@ -720,6 +808,7 @@ function ProcureApp() {
   const [activePanel, setActivePanel] = useState("");
   const [activePage, setActivePage] = useState("table");
   const [importedData, setImportedData] = useState(null);
+  const [previousData, setPreviousData] = useState(null);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [colorLines, setColorLines] = useState(false);
   const [showFournisseurs, setShowFournisseurs] = useState(false);
@@ -1321,18 +1410,21 @@ function ProcureApp() {
           </div>
 
           {/* Page routing */}
-          {activePage === "dashboard" && <PageDashboard data={tableData} 
-            onFilter={st => { setSelectedStatut(st); setActivePage("table"); setActivePanel(""); setCurrentPage(1); }} 
+          {activePage === "dashboard" && <PageDashboard data={tableData} previousData={previousData}
+            onFilter={st => { setSelectedStatut(st); setActivePage("table"); setActivePanel(""); setCurrentPage(1); }}
             onSetFournisseur={f => { setSelectedFournisseur(f); setActivePage("table"); setActivePanel(""); setCurrentPage(1); }}
             onSetProjet={p => { setSelectedProjet(p); setActivePage("table"); setActivePanel(""); setCurrentPage(1); }}
             onSearch={s => { setSearch(s); setActivePage("table"); setActivePanel(""); setCurrentPage(1); }}
           />}
           {activePage === "profil" && <PageProfil onLogout={() => window.location.reload()} />}
-          {activePage === "imports" && <PageImports 
-            onImport={(data) => { 
+          {activePage === "imports" && <PageImports
+            onImport={(data) => {
+              setPreviousData(importedData || MOCK_DATA);
               setImportedData(data);
+              setActivePage("dashboard");
+              setActivePanel("");
             }}
-            onNavigateToTable={() => { 
+            onNavigateToTable={() => {
               setActivePage("table");
               setActivePanel("");
             }}
@@ -1446,7 +1538,7 @@ function ProcureApp() {
                   }}>
                     📥 Données importées — {importedData.length} lignes
                     <span
-                      onClick={() => setImportedData(null)}
+                      onClick={() => { setImportedData(null); setPreviousData(null); }}
                       style={{ cursor: "pointer", color: "#475569", marginLeft: 4 }}
                     >
                       ✕ Réinitialiser
