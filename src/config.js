@@ -130,7 +130,8 @@ export const SIDEBAR_ITEMS = [
   { icon: "📋", label: "Table principale", type: "page", page: "table" },
   { icon: "🔽", label: "Filtres", type: "panel", panel: "filtres" },
   { icon: "❄️", label: "Figer le volet", type: "panel", panel: "figer" },
-  { icon: "📤", label: "Export", type: "page", page: "export" },
+  { icon: "�", label: "Imports", type: "page", page: "imports" },
+  { icon: "�📤", label: "Export", type: "page", page: "export" },
   { icon: "📈", label: "Graphique", type: "page", page: "graphique" },
   { icon: "📋", label: "Journal imports", type: "page", page: "journal" },
 ];

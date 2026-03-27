@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { STATUT_CONFIG, PROJETS, ALL_COLUMNS, DEFAULT_VISIBLE, MOCK_DATA, TOAST_CONFIGS, TOAST_STYLES, SIDEBAR_ITEMS } from "./config";
 import PageGraphique from "./PageGraphique";
 import PageJournal from "./PageJournal";
+import PageImports from "./PageImports";
 import FicheFournisseur from "./FicheFournisseur";
 import PageOTD from "./PageOTD";
 import PageRFT from "./PageRFT";
@@ -718,6 +719,7 @@ function ProcureApp() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [activePanel, setActivePanel] = useState("");
   const [activePage, setActivePage] = useState("table");
+  const [importedData, setImportedData] = useState(null);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [colorLines, setColorLines] = useState(false);
   const [showFournisseurs, setShowFournisseurs] = useState(false);
@@ -734,6 +736,9 @@ function ProcureApp() {
   const carteRef = useRef(null);
   const [dropdownPos, setDropdownPos] = useState({ top: 0, right: 0 });
   const [pageSize, setPageSize] = useState(25);
+
+  // Use imported data or fall back to MOCK_DATA
+  const tableData = importedData || MOCK_DATA;
 
   // Configuration des largeurs de colonnes pour le freeze
   const COL_WIDTHS = {
@@ -786,7 +791,7 @@ function ProcureApp() {
   };
 
   // Filtering
-  const filtered = MOCK_DATA.filter(d => {
+  const filtered = tableData.filter(d => {
     if (selectedProjet && d.nomProjet !== selectedProjet) return false;
     if (selectedSousProjet && d.sousProjet !== selectedSousProjet) return false;
     if (selectedStatut && d.statut !== selectedStatut) return false;
@@ -805,13 +810,13 @@ function ProcureApp() {
   const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   // Fournisseurs
-  const fournisseursList = [...new Set(MOCK_DATA.map(d => d.nomFournisseur))];
+  const fournisseursList = [...new Set(tableData.map(d => d.nomFournisseur))];
   const fournisseurCounts = {};
-  fournisseursList.forEach(f => { fournisseurCounts[f] = MOCK_DATA.filter(d => d.nomFournisseur === f).length; });
+  fournisseursList.forEach(f => { fournisseurCounts[f] = tableData.filter(d => d.nomFournisseur === f).length; });
 
   // Counts
   const statusCounts = {};
-  MOCK_DATA.forEach(d => { statusCounts[d.statut] = (statusCounts[d.statut] || 0) + 1; });
+  tableData.forEach(d => { statusCounts[d.statut] = (statusCounts[d.statut] || 0) + 1; });
 
   // Editable cell handler
   const handleEditStart = (id, field) => { setEditingCell({ id, field }); };
@@ -844,6 +849,7 @@ function ProcureApp() {
 
   const navPageLabel = () => {
     if (activePage === "dashboard") return "Dashboard";
+    if (activePage === "imports") return "Imports";
     if (activePage === "export") return "Export";
     if (activePage === "graphique") return "Graphique";
     if (activePage === "journal") return "Journal imports";
@@ -1315,14 +1321,23 @@ function ProcureApp() {
           </div>
 
           {/* Page routing */}
-          {activePage === "dashboard" && <PageDashboard data={MOCK_DATA} 
+          {activePage === "dashboard" && <PageDashboard data={tableData} 
             onFilter={st => { setSelectedStatut(st); setActivePage("table"); setActivePanel(""); setCurrentPage(1); }} 
             onSetFournisseur={f => { setSelectedFournisseur(f); setActivePage("table"); setActivePanel(""); setCurrentPage(1); }}
             onSetProjet={p => { setSelectedProjet(p); setActivePage("table"); setActivePanel(""); setCurrentPage(1); }}
             onSearch={s => { setSearch(s); setActivePage("table"); setActivePanel(""); setCurrentPage(1); }}
           />}
           {activePage === "profil" && <PageProfil onLogout={() => window.location.reload()} />}
-          {activePage === "export" && <PageExport filteredCount={filtered.length} totalCount={MOCK_DATA.length} />}
+          {activePage === "imports" && <PageImports 
+            onImport={(data) => { 
+              setImportedData(data);
+            }}
+            onNavigateToTable={() => { 
+              setActivePage("table");
+              setActivePanel("");
+            }}
+          />}
+          {activePage === "export" && <PageExport filteredCount={filtered.length} totalCount={tableData.length} />}
           {activePage === "graphique" && <PageGraphique />}
           {activePage === "journal" && <PageJournal />}
           {activePage === "otd" && <PageOTD />}
@@ -1416,6 +1431,28 @@ function ProcureApp() {
                   ⚡ Mise à jour{selectedRows.length > 0 && ` (${selectedRows.length})`}
                 </button>
                 <button onClick={clearFilters} style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: "#f1f5f9", cursor: "pointer", fontWeight: 500, fontSize: 13, color: "#64748b" }}>✕ Clear Filters</button>
+                {importedData && (
+                  <div style={{
+                    background: "#16a34a15",
+                    border: "1px solid #16a34a44",
+                    borderRadius: 8,
+                    padding: "4px 12px",
+                    fontSize: 11,
+                    color: "#86efac",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    fontWeight: 600
+                  }}>
+                    📥 Données importées — {importedData.length} lignes
+                    <span
+                      onClick={() => setImportedData(null)}
+                      style={{ cursor: "pointer", color: "#475569", marginLeft: 4 }}
+                    >
+                      ✕ Réinitialiser
+                    </span>
+                  </div>
+                )}
                 <div style={{ width: 1, height: 24, background: "#e2e8f0" }} />
                 <select value={selectedStatut} onChange={e => { setSelectedStatut(e.target.value); setCurrentPage(1); }}
                   style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#f8fafc", fontSize: 13, cursor: "pointer" }}>
@@ -1656,7 +1693,7 @@ function ProcureApp() {
 
       {/* Fiche Fournisseur Modal */}
       {ficheFournisseur && (
-        <FicheFournisseur fournisseur={ficheFournisseur} data={MOCK_DATA}
+        <FicheFournisseur fournisseur={ficheFournisseur} data={tableData}
           onClose={() => setFicheFournisseur(null)}
           onFilter={f => { setSelectedFournisseur(f); setActivePage("table"); setActivePanel(""); setCurrentPage(1); }} />
       )}

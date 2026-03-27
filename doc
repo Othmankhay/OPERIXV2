@@ -1,0 +1,31 @@
+nnn
+
+✅ Fichiers créés/modifiés
+1. PageImports.jsx (Nouveau)
+Composant complet d'import avec:
+
+Zone de drag & drop pour déposer les fichiers
+Validation des formats .xlsx, .xls, .csv
+Aperçu des 5 premières lignes avant confirmation
+Historique des imports effectués dans la session
+Fonction de mapping flexible des colonnes Excel → champs OPERIX
+2. App.jsx (Modifié)
+Ajout de importedData state
+Variable tableData = importedData || MOCK_DATA (bascule auto)
+Tous les filtres/recherches utilisent maintenant tableData
+Badge vert montrant: "📥 Données importées — 87 lignes" avec bouton réinitialiser
+Intégration de PageImports à la navigation
+3. config.js (Modifié)
+Ajout "📥 Imports" au menu sidebar
+4. Package.json (npm install xlsx)
+Libraire SheetJS pour lire Excel/CSV côté client
+🎯 Fonctionnalités
+✅ Upload - Glisser-déposer OU clic pour parcourir
+✅ Mapping intelligent - Teste 20+ noms de colonnes SAP différents
+✅ Prévisualisation - Vois les 5 premières lignes avant d'importer
+✅ Traitement client - Aucune latence serveur
+✅ Basculement automatique - Redirection tableau après import
+✅ Reset - Bouton pour revenir aux MOCK_DATA
+✅ Historique - Liste tous les imports de la session
+refais ca 
+mais de maniere plus professionnel et je veux que le dashboard change au fur et a mesur du ficbier excel et je veux une comparaison entre les enciennes donnees et les novelles donnees du fichier je crois que c deja present dans le dashboard mais verifie
