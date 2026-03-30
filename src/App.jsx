@@ -45,8 +45,70 @@ const MOCK_RAPPORT_IMPACT = [
   { id: "PR-005", idIbaVc: "IBA-005", nCtmqBa: "CTMQ-102", article: "PLQ-ALU", designation: "Plaque aluminium", codeFonction: "F05", codeFournisseur: "FRN-005", nomFournisseur: "Epsilon", psaId: "PSA-127", utilisateurPSA: "Bernard C.", magasin: "MAG-E2", quantiteNecessaire: 1200, dateEngagement: "18/03/2026", dateEchLundi: "30/03/2026", statut: "Confirmé", dateLivraisonConfirmee: "02/04/2026", dernierCommentaire: "", statutRapportImpact: "OK", requirementType: "Standard" }
 ];
 
+/* ─── Diff computation ─────────────────────────────── */
+const KEY_DIFF_FIELDS = ['statut','quantiteEcheancee','dateLivraisonConfirmee','nomFournisseur','dateEcheance'];
+function computeDiff(prevData, newData) {
+  const prevById = {};
+  prevData.forEach(d => { prevById[d.id] = d; });
+  const added = [], modified = [], newRetards = [];
+  newData.forEach(d => {
+    const prev = prevById[d.id];
+    if (!prev) {
+      added.push(d);
+    } else {
+      const changes = KEY_DIFF_FIELDS.filter(f => String(prev[f] || '') !== String(d[f] || ''));
+      if (changes.length > 0) {
+        modified.push({ id: d.id, changes, prev: { statut: prev.statut, article: prev.article, nomFournisseur: prev.nomFournisseur }, curr: { statut: d.statut, article: d.article, nomFournisseur: d.nomFournisseur } });
+        const wasOk = !['Retard','Manquants Plus'].includes(prev.statut);
+        if (wasOk && ['Retard','Manquants Plus'].includes(d.statut)) newRetards.push(d);
+      }
+    }
+  });
+  return { added, modified, newRetards };
+}
+
+/* ─── Dynamic monthly chart ────────────────────────── */
+const MOIS_LABELS = ['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Août','Sep','Oct','Nov','Déc'];
+const CHART_SERIES_CFG = [
+  { label: 'Reçu',           color: '#16a34a' },
+  { label: 'En cours',       color: '#3b82f6' },
+  { label: 'Retard',         color: '#e67e22' },
+  { label: 'Manquants Plus', color: '#c0392b' },
+];
+function buildMonthlyData(data) {
+  const byMonth = {};
+  data.forEach(d => {
+    const dt = d.dateEcheance || d.dateTransfertPegase;
+    if (!dt) return;
+    let month;
+    if (dt.includes('-')) month = new Date(dt).getMonth();
+    else if (dt.includes('/')) { const p = dt.split('/'); month = parseInt(p[1]) - 1; }
+    if (month === undefined || isNaN(month)) return;
+    if (!byMonth[month]) byMonth[month] = {};
+    byMonth[month][d.statut] = (byMonth[month][d.statut] || 0) + 1;
+  });
+  const hasData = Object.keys(byMonth).length > 0;
+  // Fallback to static demo data when no real dates available
+  if (!hasData) return {
+    mois: MOIS_LABELS,
+    series: [
+      { label: 'Reçu',           color: '#16a34a', data: [8,14,14,9,2,0,5,12,15,11,3,0] },
+      { label: 'En cours',       color: '#3b82f6', data: [12,10,8,11,14,16,13,9,7,10,12,15] },
+      { label: 'Retard',         color: '#e67e22', data: [3,2,4,3,5,6,4,3,2,4,5,3] },
+      { label: 'Manquants Plus', color: '#c0392b', data: [1,0,1,2,3,4,2,1,0,1,2,3] },
+    ]
+  };
+  return {
+    mois: MOIS_LABELS,
+    series: CHART_SERIES_CFG.map(s => ({
+      label: s.label, color: s.color,
+      data: Array.from({ length: 12 }, (_, m) => byMonth[m]?.[s.label] || 0)
+    }))
+  };
+}
+
 /* ─── Dashboard page ────────────────────────────────── */
-function PageDashboard({ data, previousData, onFilter, onSetFournisseur, onSearch }) {
+function PageDashboard({ data, previousData, importDiff, cumulativeStats, onFilter, onSetFournisseur, onSearch }) {
   const [graphProject, setGraphProject] = useState("Tous");
   const [hiddenSeries, setHiddenSeries] = useState([]);
   const [showComparison, setShowComparison] = useState(true);
@@ -94,6 +156,8 @@ function PageDashboard({ data, previousData, onFilter, onSetFournisseur, onSearc
   ];
 
   const otdPercent = counts.total ? Math.round((counts.recus / counts.total) * 100) : 0;
+  const prevOtdPercent = prevCounts && prevCounts.total ? Math.round((prevCounts.recus / prevCounts.total) * 100) : null;
+  const otdDelta = prevOtdPercent !== null ? otdPercent - prevOtdPercent : null;
   let otdColor = "#dc2626", otdBg = "#fef2f2";
   if (otdPercent >= 80) { otdColor = "#16a34a"; otdBg = "#f0fdf4"; }
   else if (otdPercent >= 50) { otdColor = "#d97706"; otdBg = "#fffbeb"; }
@@ -105,9 +169,34 @@ function PageDashboard({ data, previousData, onFilter, onSetFournisseur, onSearc
   const currentWeekEnd = getWeekEnd(now);
   const parseDateToTime = (dstr) => {
     if (!dstr) return 0;
-    if (dstr.includes("-")) return new Date(dstr).getTime();
-    const [d, m, y] = dstr.split("/");
-    return new Date(`${y}-${m}-${d}`).getTime();
+    if (dstr instanceof Date) return dstr.getTime();
+
+    const raw = String(dstr).trim();
+    if (!raw) return 0;
+
+    // Accept many formats: yyyy-MM-dd, yyyy-MM-ddTHH:mm:ss, dd/MM/yyyy, dd/MM/yyyy HH:mm:ss, dd-MM-yyyy etc.
+    // Normalisation fr -> ISO
+    const value = raw.replace(/\./g, "/").replace(/\s+/g, " ");
+
+    // Date with slash format DD/MM/YYYY[ hh:mm:ss]
+    const slashDate = value.split(" ")[0];
+    const slashParts = slashDate.split("/");
+    if (slashParts.length === 3) {
+      let [day, month, year] = slashParts;
+      if (year.length === 2) year = `20${year}`;
+      const timePart = (value.split(" ")[1] || "").split(":");
+      const hours = Number(timePart[0] || 0);
+      const minutes = Number(timePart[1] || 0);
+      const seconds = Number(timePart[2] || 0);
+      const dt = new Date(Number(year), Number(month) - 1, Number(day), hours, minutes, seconds);
+      if (!isNaN(dt.getTime())) return dt.getTime();
+    }
+
+    // Fallback for ISO-ish formats (including yyyy-MM-dd and yyyy-MM-ddTHH:mm:ss)
+    const iso = new Date(raw);
+    if (!isNaN(iso.getTime())) return iso.getTime();
+
+    return 0;
   };
 
   let sTotal = 0, sConf = 0, sNonConf = 0, sRisk = 0;
@@ -134,15 +223,7 @@ function PageDashboard({ data, previousData, onFilter, onSetFournisseur, onSearc
     return { name, riskCount, otd, col, ic };
   });
 
-  const GRAPH_DATA = {
-    mois: ['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Août','Sep','Oct','Nov','Déc'],
-    series: [
-      { label: 'Reçu',           color: '#16a34a', data: [8,14,14,9,2,0,5,12,15,11,3,0] },
-      { label: 'En cours',       color: '#3b82f6', data: [12,10,8,11,14,16,13,9,7,10,12,15] },
-      { label: 'Retard',         color: '#e67e22', data: [3,2,4,3,5,6,4,3,2,4,5,3] },
-      { label: 'Manquants Plus', color: '#c0392b', data: [1,0,1,2,3,4,2,1,0,1,2,3] },
-    ]
-  };
+  const GRAPH_DATA = buildMonthlyData(filteredData);
   const activeSeries = GRAPH_DATA.series.filter(s => !hiddenSeries.includes(s.label));
   let chartMaxVal = 1;
   activeSeries.forEach(s => { const max = Math.max(...s.data); if (max > chartMaxVal) chartMaxVal = max; });
@@ -233,20 +314,64 @@ function PageDashboard({ data, previousData, onFilter, onSetFournisseur, onSearc
         ))}
       </div>
 
-      {/* Comparison panel */}
+      {/* ── Cumulative KPI banner ── */}
+      {cumulativeStats && cumulativeStats.totalCommandes > 0 && (
+        <div style={{ background: "linear-gradient(135deg,#1a2744 0%,#1e3a5f 100%)", borderRadius: 12, padding: "14px 20px", marginBottom: 16, display: "flex", alignItems: "center", gap: 24, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#60a5fa", textTransform: "uppercase", letterSpacing: "0.08em" }}>Cumul session</span>
+          </div>
+          {[
+            { label: "Commandes traitées", value: cumulativeStats.totalCommandes, color: "#93c5fd" },
+            { label: "Reçues (cumul)", value: cumulativeStats.recues, color: "#4ade80" },
+            { label: "En retard (cumul)", value: cumulativeStats.enRetard, color: "#f87171" },
+            { label: "Imports effectués", value: cumulativeStats.imports, color: "#fbbf24" },
+          ].map(k => (
+            <div key={k.label} style={{ display: "flex", flexDirection: "column" }}>
+              <span style={{ fontSize: 10, color: "#64748b", fontWeight: 600 }}>{k.label}</span>
+              <span style={{ fontSize: 22, fontWeight: 700, color: k.color, lineHeight: 1.2 }}>{k.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Comparison panel — Avant / Après ── */}
       {previousData && showComparison && (
-        <div style={{ background: "#1a2744", borderRadius: 12, padding: "14px 20px", marginBottom: 16, color: "#fff" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <div style={{ background: "#1a2744", borderRadius: 12, padding: "16px 20px", marginBottom: 16, color: "#fff" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ fontSize: 14 }}>⇄</span>
               <span style={{ fontSize: 13, fontWeight: 700 }}>Comparaison — Avant / Après import</span>
-              <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 500 }}>
-                {previousData.length} lignes → {data.length} lignes
+              <span style={{ background: "#ffffff10", borderRadius: 20, padding: "2px 10px", fontSize: 11, color: "#94a3b8" }}>
+                {previousData.length} → {data.length} lignes
               </span>
             </div>
             <button onClick={() => setShowComparison(false)}
-              style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>
+              style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>
           </div>
+
+          {/* Diff summary chips */}
+          {importDiff && (
+            <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+              <div style={{ background: "#f0fdf420", border: "1px solid #4ade8040", borderRadius: 8, padding: "6px 12px", display: "flex", gap: 6, alignItems: "center" }}>
+                <span style={{ color: "#4ade80", fontWeight: 700, fontSize: 16 }}>{importDiff.added.length}</span>
+                <span style={{ fontSize: 12, color: "#86efac" }}>nouvelles lignes</span>
+              </div>
+              <div style={{ background: "#fbbf2420", border: "1px solid #fbbf2440", borderRadius: 8, padding: "6px 12px", display: "flex", gap: 6, alignItems: "center" }}>
+                <span style={{ color: "#fbbf24", fontWeight: 700, fontSize: 16 }}>{importDiff.modified.length}</span>
+                <span style={{ fontSize: 12, color: "#fde68a" }}>lignes modifiées</span>
+              </div>
+              <div style={{ background: "#f8717120", border: "1px solid #f8717140", borderRadius: 8, padding: "6px 12px", display: "flex", gap: 6, alignItems: "center" }}>
+                <span style={{ color: "#f87171", fontWeight: 700, fontSize: 16 }}>{importDiff.newRetards.length}</span>
+                <span style={{ fontSize: 12, color: "#fca5a5" }}>nouveaux retards</span>
+              </div>
+              <div style={{ background: "#ffffff08", borderRadius: 8, padding: "6px 12px", display: "flex", gap: 6, alignItems: "center" }}>
+                <span style={{ color: "#94a3b8", fontWeight: 700, fontSize: 16 }}>{data.length - previousData.length >= 0 ? "+" : ""}{data.length - previousData.length}</span>
+                <span style={{ fontSize: 12, color: "#64748b" }}>variation volume</span>
+              </div>
+            </div>
+          )}
+
+          {/* Status before → after */}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {[
               { label: "Total", prev: prevCounts?.total, curr: counts.total, lowerBetter: false },
@@ -258,26 +383,40 @@ function PageDashboard({ data, previousData, onFilter, onSetFournisseur, onSearc
             ].map(item => {
               const diff = item.curr - item.prev;
               const improved = item.lowerBetter ? diff < 0 : diff > 0;
-              const neutral  = diff === 0;
-              const clr = neutral ? "#94a3b8" : improved ? "#4ade80" : "#f87171";
+              const neutral = diff === 0;
+              const clr = neutral ? "#64748b" : improved ? "#4ade80" : "#f87171";
               return (
-                <div key={item.label} style={{ background: "#ffffff0f", borderRadius: 8, padding: "8px 14px", minWidth: 130 }}>
-                  <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 600, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>{item.label}</div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div key={item.label} style={{ background: "#ffffff0a", borderRadius: 8, padding: "8px 14px", minWidth: 120 }}>
+                  <div style={{ fontSize: 10, color: "#64748b", fontWeight: 600, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}>{item.label}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <span style={{ fontSize: 13, color: "#94a3b8" }}>{item.prev}</span>
-                    <span style={{ fontSize: 11, color: "#475569" }}>→</span>
-                    <span style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>{item.curr}</span>
-                    {!neutral && (
-                      <span style={{ fontSize: 11, fontWeight: 700, color: clr }}>
-                        {diff > 0 ? "+" : ""}{diff} {improved ? "▲" : "▼"}
-                      </span>
-                    )}
-                    {neutral && <span style={{ fontSize: 11, color: "#64748b" }}>—</span>}
+                    <span style={{ fontSize: 10, color: "#334155" }}>→</span>
+                    <span style={{ fontSize: 18, fontWeight: 700, color: "#fff" }}>{item.curr}</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: clr }}>
+                      {neutral ? "=" : (diff > 0 ? "+" : "") + diff + (improved ? " ▲" : " ▼")}
+                    </span>
                   </div>
                 </div>
               );
             })}
           </div>
+
+          {/* New retards detail */}
+          {importDiff && importDiff.newRetards.length > 0 && (
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #ffffff10" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#f87171", marginBottom: 8 }}>
+                Nouvelles dégradations détectées
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {importDiff.newRetards.slice(0, 6).map(d => (
+                  <span key={d.id} onClick={() => onFilter(d.statut)} style={{ background: "#f8717118", border: "1px solid #f8717130", color: "#fca5a5", fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 20, cursor: "pointer" }}>
+                    {d.article || d.id} → {d.statut}
+                  </span>
+                ))}
+                {importDiff.newRetards.length > 6 && <span style={{ color: "#64748b", fontSize: 11, padding: "3px 0" }}>+{importDiff.newRetards.length - 6} autres</span>}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -288,7 +427,12 @@ function PageDashboard({ data, previousData, onFilter, onSetFournisseur, onSearc
           <div style={{ fontSize: 13, fontWeight: 700, color: "#64748b", marginBottom: 8 }}>🎯 Taux OTD</div>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 10, marginBottom: 6 }}>
             <div style={{ fontSize: 36, fontWeight: 700, color: otdColor, lineHeight: 1 }}>{otdPercent}%</div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: otdPercent >= 80 ? "#16a34a" : "#dc2626", marginBottom: 4 }}>{otdPercent >= 80 ? "↑ +3% vs S-1" : "↓ -1% vs S-1"}</div>
+            {otdDelta !== null && otdDelta !== 0 && (
+              <div style={{ fontSize: 12, fontWeight: 700, color: otdDelta > 0 ? "#16a34a" : "#dc2626", marginBottom: 4 }}>
+                {otdDelta > 0 ? `↑ +${otdDelta}%` : `↓ ${otdDelta}%`} vs import précédent
+              </div>
+            )}
+            {otdDelta === 0 && <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 4 }}>= stable</div>}
           </div>
           <div style={{ background: "#f1f5f9", borderRadius: 20, height: 6, overflow: "hidden", marginTop: 12 }}>
             <div style={{ background: otdColor, height: "100%", width: `${otdPercent}%` }} />
@@ -327,7 +471,12 @@ function PageDashboard({ data, previousData, onFilter, onSetFournisseur, onSearc
 
       {/* SVG Multi-courbes */}
       <div style={{ background: "#fff", borderRadius: 14, padding: "20px 24px", border: "1px solid #e2e8f0", marginBottom: 28 }}>
-        <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1a2744", marginBottom: 16 }}>Évolution des statuts / Mois — {graphProject}</h3>
+        <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1a2744", marginBottom: 16 }}>
+          Évolution des statuts / Mois — {graphProject}
+          {filteredData.some(d => d.dateEcheance || d.dateTransfertPegase) && (
+            <span style={{ marginLeft: 10, fontSize: 11, fontWeight: 500, color: "#16a34a", background: "#f0fdf4", padding: "2px 8px", borderRadius: 10 }}>données réelles</span>
+          )}
+        </h3>
         <div style={{ width: "100%", overflowX: "auto" }}>
           <svg viewBox={`-20 -20 ${chartW + 40} ${chartH + 50}`} style={{ minWidth: 600, width: "100%", maxHeight: 260 }}>
             {[0, 0.25, 0.5, 0.75, 1].map(r => <line key={r} x1={0} y1={chartH * r} x2={chartW} y2={chartH * r} stroke="#f1f5f9" strokeWidth="1" strokeDasharray="4 4" />)}
@@ -368,6 +517,12 @@ function PageDashboard({ data, previousData, onFilter, onSetFournisseur, onSearc
         const weekDays = [];
         const monday = new Date(currentWeekStart);
         let calTotal = 0, calConf = 0, calRisk = 0;
+
+        console.log("📅 Calendar debug:");
+        console.log("- Current week:", new Date(currentWeekStart).toISOString().split('T')[0], "to", new Date(currentWeekEnd).toISOString().split('T')[0]);
+        console.log("- Filtered data length:", filteredData.length);
+        console.log("- Graph project filter:", graphProject);
+
         for (let i = 0; i < 5; i++) {
           const dayDate = new Date(monday);
           dayDate.setDate(monday.getDate() + i);
@@ -398,8 +553,21 @@ function PageDashboard({ data, previousData, onFilter, onSetFournisseur, onSearc
         return (
           <div style={{ marginBottom: 28 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1a2744", margin: 0 }}>📅 Calendrier des échéances — Semaine courante</h3>
-              <div style={{ fontSize: 13, color: "#64748b", fontWeight: 500 }}>{calTotal} pièces · <span style={{ color: "#16a34a", fontWeight: 600 }}>{calConf} confirmées</span> · <span style={{ color: "#dc2626", fontWeight: 600 }}>{calRisk} à risque</span></div>
+              <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1a2744", margin: 0 }}>
+                📅 Calendrier des échéances — Semaine courante
+                {graphProject !== "Tous" && <span style={{ fontSize: 12, fontWeight: 400, color: "#64748b", marginLeft: 8 }}>(filtré sur {graphProject})</span>}
+              </h3>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {graphProject !== "Tous" && (
+                  <button
+                    onClick={() => setGraphProject("Tous")}
+                    style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#f8fafc", color: "#475569", fontSize: 11, cursor: "pointer" }}
+                  >
+                    Afficher tous les projets
+                  </button>
+                )}
+                <div style={{ fontSize: 13, color: "#64748b", fontWeight: 500 }}>{calTotal} pièces · <span style={{ color: "#16a34a", fontWeight: 600 }}>{calConf} confirmées</span> · <span style={{ color: "#dc2626", fontWeight: 600 }}>{calRisk} à risque</span></div>
+              </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
               {weekDays.map(day => (
@@ -772,18 +940,19 @@ function PageRapportImpact({
    ═══════════════════════════════════════════════════════ */
 export default function AppWrapper() {
   const [appPhase, setAppPhase] = useState("splash"); // "splash" | "login" | "app"
+  const [currentUser, setCurrentUser] = useState("");
   const handleSplashDone = useCallback(() => setAppPhase("login"), []);
-  const handleLogin = useCallback(() => setAppPhase("app"), []);
+  const handleLogin = useCallback((email) => { setCurrentUser(email || "Utilisateur"); setAppPhase("app"); }, []);
 
   if (appPhase === "splash") return <SplashScreen onFinish={handleSplashDone} />;
   if (appPhase === "login") return <LoginPage onLogin={handleLogin} />;
-  return <ProcureApp />;
+  return <ProcureApp currentUser={currentUser} />;
 }
 
 /* ═══════════════════════════════════════════════════════
    MAIN APP
    ═══════════════════════════════════════════════════════ */
-function ProcureApp() {
+function ProcureApp({ currentUser }) {
   const [toasts, setToasts] = useState([]);
   const [visibleCols, setVisibleCols] = useState(DEFAULT_VISIBLE);
   const [showColPanel, setShowColPanel] = useState(false);
@@ -809,6 +978,8 @@ function ProcureApp() {
   const [activePage, setActivePage] = useState("table");
   const [importedData, setImportedData] = useState(null);
   const [previousData, setPreviousData] = useState(null);
+  const [importDiff, setImportDiff] = useState(null);
+  const [cumulativeStats, setCumulativeStats] = useState({ totalCommandes: 0, recues: 0, enRetard: 0, imports: 0 });
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [colorLines, setColorLines] = useState(false);
   const [showFournisseurs, setShowFournisseurs] = useState(false);
@@ -1410,7 +1581,7 @@ function ProcureApp() {
           </div>
 
           {/* Page routing */}
-          {activePage === "dashboard" && <PageDashboard data={tableData} previousData={previousData}
+          {activePage === "dashboard" && <PageDashboard data={tableData} previousData={previousData} importDiff={importDiff} cumulativeStats={cumulativeStats}
             onFilter={st => { setSelectedStatut(st); setActivePage("table"); setActivePanel(""); setCurrentPage(1); }}
             onSetFournisseur={f => { setSelectedFournisseur(f); setActivePage("table"); setActivePanel(""); setCurrentPage(1); }}
             onSetProjet={p => { setSelectedProjet(p); setActivePage("table"); setActivePanel(""); setCurrentPage(1); }}
@@ -1418,10 +1589,32 @@ function ProcureApp() {
           />}
           {activePage === "profil" && <PageProfil onLogout={() => window.location.reload()} />}
           {activePage === "imports" && <PageImports
+            currentUser={currentUser}
+            currentData={tableData}
             onImport={(data) => {
-              setPreviousData(importedData || MOCK_DATA);
+              console.log("📥 Import received:", data.length, "items");
+              console.log("📅 Sample imported data:");
+              data.slice(0, 3).forEach((d, i) => {
+                console.log(`  Item ${i+1}:`, {
+                  id: d.id,
+                  dateEcheance: d.dateEcheance,
+                  nomProjet: d.nomProjet,
+                  statut: d.statut
+                });
+              });
+
+              const prev = importedData || MOCK_DATA;
+              const diff = computeDiff(prev, data);
+              setPreviousData(prev);
+              setImportDiff(diff);
               setImportedData(data);
-              setActivePage("dashboard");
+              setCumulativeStats(s => ({
+                totalCommandes: s.totalCommandes + data.length,
+                recues: s.recues + data.filter(d => d.statut === "Reçu").length,
+                enRetard: s.enRetard + data.filter(d => ["Retard","Manquants Plus"].includes(d.statut)).length,
+                imports: s.imports + 1,
+              }));
+              // Ne pas changer de page pour conserver l'historique des imports dans PageImports
               setActivePanel("");
             }}
             onNavigateToTable={() => {
@@ -1538,7 +1731,7 @@ function ProcureApp() {
                   }}>
                     📥 Données importées — {importedData.length} lignes
                     <span
-                      onClick={() => { setImportedData(null); setPreviousData(null); }}
+                      onClick={() => { setImportedData(null); setPreviousData(null); setImportDiff(null); }}
                       style={{ cursor: "pointer", color: "#475569", marginLeft: 4 }}
                     >
                       ✕ Réinitialiser

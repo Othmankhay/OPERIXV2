@@ -27,7 +27,7 @@ export default function LoginPage({ onLogin }) {
     e.preventDefault();
     if (!email || !password) return;
     setLoading(true);
-    setTimeout(() => onLogin(), 800);
+    setTimeout(() => onLogin(email), 800);
   };
 
   const inputStyle = (field) => ({
