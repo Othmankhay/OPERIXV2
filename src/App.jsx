@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { STATUT_CONFIG, PROJETS, ALL_COLUMNS, DEFAULT_VISIBLE, MOCK_DATA, TOAST_CONFIGS, TOAST_STYLES, SIDEBAR_ITEMS } from "./config";
 import { getStatusColor, getAllStatusColors } from "./statusColorManager";
 import ColumnSelectionModal from "./ColumnManager";
@@ -1016,8 +1016,35 @@ function ProcureApp({ currentUser }) {
   const [dropdownPos, setDropdownPos] = useState({ top: 0, right: 0 });
   const [pageSize, setPageSize] = useState(25);
 
+  // ── Modal states for row actions ───────────────────────
+  const [historyModal, setHistoryModal]     = useState(null); // rowId or null
+  const [pplrlogModal, setPplrlogModal]     = useState(null); // rowId or null
+  const [commentsModal, setCommentsModal]   = useState(null); // rowId or null
+  const [historySearch, setHistorySearch]   = useState("");
+  const [pplrlogInput, setPplrlogInput]     = useState("");
+  const [commentsInput, setCommentsInput]   = useState("");
+  const [rowHistory, setRowHistory]         = useState({}); // { rowId: [{when,who,field,from,to}] }
+  const [pplrlogComments, setPplrlogComments] = useState({}); // { rowId: [{user, comment}] }
+  const [generalComments, setGeneralComments] = useState({}); // { rowId: [{user, comment}] }
+
   // Use imported data or fall back to MOCK_DATA
   const tableData = importedData || MOCK_DATA;
+
+  // ── Dynamic projects/sub-projects from imported data ──
+  const dynamicProjets = useMemo(() => {
+    if (!tableData || tableData.length === 0) return PROJETS;
+    const proj = {};
+    tableData.forEach(d => {
+      if (!d.nomProjet) return;
+      if (!proj[d.nomProjet]) proj[d.nomProjet] = new Set();
+      if (d.sousProjet) proj[d.nomProjet].add(d.sousProjet);
+    });
+    const result = {};
+    Object.keys(proj).forEach(p => { result[p] = [...proj[p]]; });
+    // Keep PROJETS keys that have no data yet
+    Object.keys(PROJETS).forEach(p => { if (!result[p]) result[p] = PROJETS[p]; });
+    return result;
+  }, [tableData]);
 
   // Configuration des largeurs de colonnes pour le freeze
   const COL_WIDTHS = {
@@ -1269,6 +1296,20 @@ function ProcureApp({ currentUser }) {
   // Editable cell handler
   const handleEditStart = (id, field) => { setEditingCell({ id, field }); };
   const handleEditEnd = (id, field, value) => {
+    const oldValue = comments[id + "_" + field] || "";
+    if (value !== oldValue) {
+      const fieldLabel = field === "comment" ? "Dernier commentaire" : "Dernier PPL RLOG Commentaire";
+      setRowHistory(prev => ({
+        ...prev,
+        [id]: [...(prev[id] || []), {
+          when: new Date().toLocaleString("fr-FR"),
+          who: currentUser || "Utilisateur",
+          field: fieldLabel,
+          from: oldValue,
+          to: value,
+        }],
+      }));
+    }
     setComments(prev => ({ ...prev, [id + "_" + field]: value }));
     setEditingCell(null);
   };
@@ -1336,8 +1377,9 @@ function ProcureApp({ currentUser }) {
         <span style={{ color: "#fff", fontWeight: 700, fontSize: 20, letterSpacing: 1.5, marginRight: 16 }}>OPERIX</span>
         <div style={{ width: 1, height: 24, background: "#ffffff22", marginRight: 16 }} />
         <div style={{ display: "flex", gap: 24, flex: 1, justifyContent: "center" }}>
-          {Object.keys(PROJETS).map(proj => {
+          {Object.keys(dynamicProjets).map(proj => {
             const active = selectedProjet === proj;
+            const subProjets = dynamicProjets[proj] || [];
             return (
               <div key={proj} style={{ display: "flex", alignItems: "center", position: "relative" }}>
                 <button onClick={() => { setSelectedProjet(active ? "" : proj); setSelectedSousProjet(""); setCurrentPage(1); }}
@@ -1348,14 +1390,19 @@ function ProcureApp({ currentUser }) {
                   <>
                     <div onClick={() => setOpenDropdown("")} style={{ position: "fixed", inset: 0, zIndex: 999 }} />
                     <div style={{ position: "absolute", top: "100%", left: 0, background: "#fff", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", padding: 8, zIndex: 1000, minWidth: 180 }}>
-                      <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, padding: "4px 10px", marginBottom: 4 }}>Sous-projets</div>
+                      <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, padding: "4px 10px", marginBottom: 4 }}>
+                        Sous-projets {subProjets.length > 0 ? `(${subProjets.length})` : ""}
+                      </div>
                       <div onClick={() => { setSelectedProjet(proj); setSelectedSousProjet(""); setOpenDropdown(""); setCurrentPage(1); }}
-                        style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 500, background: !selectedSousProjet ? "#eff6ff" : "transparent", color: !selectedSousProjet ? "#1e40af" : "#1a202c" }}
-                        onMouseEnter={e => { if (selectedSousProjet) e.currentTarget.style.background = "#f8fafc"; }}
-                        onMouseLeave={e => { if (selectedSousProjet) e.currentTarget.style.background = "transparent"; }}>
+                        style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 500, background: selectedProjet === proj && !selectedSousProjet ? "#eff6ff" : "transparent", color: selectedProjet === proj && !selectedSousProjet ? "#1e40af" : "#1a202c" }}
+                        onMouseEnter={e => { if (!(selectedProjet === proj && !selectedSousProjet)) e.currentTarget.style.background = "#f8fafc"; }}
+                        onMouseLeave={e => { if (!(selectedProjet === proj && !selectedSousProjet)) e.currentTarget.style.background = "transparent"; }}>
                         📁 Tous les sous-projets
                       </div>
-                      {PROJETS[proj].map(sp => (
+                      {subProjets.length === 0 && (
+                        <div style={{ padding: "6px 10px", fontSize: 12, color: "#94a3b8", fontStyle: "italic" }}>Aucun sous-projet dans les données</div>
+                      )}
+                      {subProjets.map(sp => (
                         <div key={sp} onClick={() => { setSelectedProjet(proj); setSelectedSousProjet(sp); setOpenDropdown(""); setCurrentPage(1); }}
                           style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 500, background: selectedSousProjet === sp ? "#eff6ff" : "transparent", color: selectedSousProjet === sp ? "#1e40af" : "#1a202c" }}
                           onMouseEnter={e => { if (selectedSousProjet !== sp) e.currentTarget.style.background = "#f8fafc"; }}
@@ -2080,11 +2127,35 @@ function ProcureApp({ currentUser }) {
                             }
                             return <td key={key} style={cellStyle}>{row[key]}</td>;
                           })}
-                          <td style={{ padding: "10px 14px", borderBottom: colorLines ? `1px solid ${sc.dot}22` : "1px solid #f1f5f9" }}>
-                            <div style={{ display: "flex", gap: 6 }}>
-                              {["💬", "📋", "🕐"].map(icon => (
-                                <button key={icon} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 15, padding: 2 }}>{icon}</button>
-                              ))}
+                          <td style={{ padding: "10px 14px", borderBottom: colorLines ? `1px solid ${sc.dot}22` : "1px solid #f1f5f9", whiteSpace: "nowrap" }}>
+                            <div style={{ display: "flex", gap: 4 }}>
+                              {/* Historique */}
+                              <button
+                                title="Afficher l'historique de la ligne"
+                                onClick={() => { setHistoryModal(row.id); setHistorySearch(""); }}
+                                style={{ background: "none", border: "1px solid #e2e8f0", borderRadius: 6, cursor: "pointer", fontSize: 14, padding: "3px 7px", color: "#64748b", transition: "all 0.15s" }}
+                                onMouseEnter={e => { e.currentTarget.style.background = "#f1f5f9"; e.currentTarget.style.borderColor = "#94a3b8"; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.borderColor = "#e2e8f0"; }}>
+                                🕐
+                              </button>
+                              {/* PPL RLOG */}
+                              <button
+                                title="Voir les PPL RLOG Commentaires"
+                                onClick={() => { setPplrlogModal(row.id); setPplrlogInput(""); }}
+                                style={{ background: "none", border: "1px solid #e2e8f0", borderRadius: 6, cursor: "pointer", fontSize: 14, padding: "3px 7px", color: "#64748b", transition: "all 0.15s" }}
+                                onMouseEnter={e => { e.currentTarget.style.background = "#f1f5f9"; e.currentTarget.style.borderColor = "#94a3b8"; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.borderColor = "#e2e8f0"; }}>
+                                📋
+                              </button>
+                              {/* Commentaires généraux */}
+                              <button
+                                title="Voir les commentaires"
+                                onClick={() => { setCommentsModal(row.id); setCommentsInput(""); }}
+                                style={{ background: "none", border: "1px solid #e2e8f0", borderRadius: 6, cursor: "pointer", fontSize: 14, padding: "3px 7px", color: "#64748b", transition: "all 0.15s" }}
+                                onMouseEnter={e => { e.currentTarget.style.background = "#f1f5f9"; e.currentTarget.style.borderColor = "#94a3b8"; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.borderColor = "#e2e8f0"; }}>
+                                💬
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -2151,6 +2222,219 @@ function ProcureApp({ currentUser }) {
           onClose={() => setFicheFournisseur(null)}
           onFilter={f => { setSelectedFournisseur(f); navigateWithHistory("table", ""); setCurrentPage(1); }} />
       )}
+
+      {/* ── Modal: Historique de la ligne ──────────────── */}
+      {historyModal && (() => {
+        const entries = (rowHistory[historyModal] || []).filter(e => {
+          if (!historySearch.trim()) return true;
+          const q = historySearch.toLowerCase();
+          return [e.when, e.who, e.field, e.from, e.to].some(v => String(v || "").toLowerCase().includes(q));
+        });
+        return (
+          <div style={{ position: "fixed", inset: 0, zIndex: 2000, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center" }}
+            onClick={() => setHistoryModal(null)}>
+            <div style={{ background: "#fff", borderRadius: 14, boxShadow: "0 16px 48px rgba(0,0,0,0.18)", width: 720, maxWidth: "95vw", maxHeight: "80vh", display: "flex", flexDirection: "column", overflow: "hidden" }}
+              onClick={e => e.stopPropagation()}>
+              {/* Header */}
+              <div style={{ padding: "18px 24px", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#1a2744" }}>🕐 Historique de la ligne</div>
+                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>ID : {historyModal}</div>
+                </div>
+                <button onClick={() => setHistoryModal(null)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#94a3b8", padding: 4 }}>✕</button>
+              </div>
+              {/* Search */}
+              <div style={{ padding: "12px 24px", borderBottom: "1px solid #f1f5f9" }}>
+                <input
+                  value={historySearch}
+                  onChange={e => setHistorySearch(e.target.value)}
+                  placeholder="Rechercher dans l'historique..."
+                  style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontSize: 13, outline: "none", boxSizing: "border-box" }}
+                  onFocus={e => e.currentTarget.style.borderColor = "#3b82f6"}
+                  onBlur={e => e.currentTarget.style.borderColor = "#e2e8f0"} />
+              </div>
+              {/* Table */}
+              <div style={{ overflowY: "auto", flex: 1 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: "#f8fafc", position: "sticky", top: 0 }}>
+                      {["Quand", "Qui", "Champ", "De", "À"].map(h => (
+                        <th key={h} style={{ padding: "10px 16px", textAlign: "left", fontWeight: 600, fontSize: 11, color: "#475569", textTransform: "uppercase", letterSpacing: 0.4, borderBottom: "1px solid #e2e8f0" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {entries.length === 0 ? (
+                      <tr><td colSpan={5} style={{ padding: 32, textAlign: "center", color: "#94a3b8", fontStyle: "italic" }}>
+                        {(rowHistory[historyModal] || []).length === 0 ? "Aucune modification enregistrée pour cette ligne." : "Aucun résultat pour cette recherche."}
+                      </td></tr>
+                    ) : entries.map((e, i) => (
+                      <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "#fafbfc" }}>
+                        <td style={{ padding: "9px 16px", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" }}>{e.when}</td>
+                        <td style={{ padding: "9px 16px", borderBottom: "1px solid #f1f5f9", fontWeight: 500 }}>{e.who}</td>
+                        <td style={{ padding: "9px 16px", borderBottom: "1px solid #f1f5f9", color: "#3b82f6", fontWeight: 500 }}>{e.field}</td>
+                        <td style={{ padding: "9px 16px", borderBottom: "1px solid #f1f5f9", color: "#dc2626", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.from || <span style={{ color: "#94a3b8", fontStyle: "italic" }}>—</span>}</td>
+                        <td style={{ padding: "9px 16px", borderBottom: "1px solid #f1f5f9", color: "#16a34a", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.to || <span style={{ color: "#94a3b8", fontStyle: "italic" }}>—</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ padding: "10px 24px", borderTop: "1px solid #f1f5f9", fontSize: 12, color: "#94a3b8" }}>
+                {entries.length} entrée{entries.length !== 1 ? "s" : ""}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Modal: PPL RLOG Commentaires ───────────────── */}
+      {pplrlogModal && (() => {
+        const entries = pplrlogComments[pplrlogModal] || [];
+        return (
+          <div style={{ position: "fixed", inset: 0, zIndex: 2000, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center" }}
+            onClick={() => setPplrlogModal(null)}>
+            <div style={{ background: "#fff", borderRadius: 14, boxShadow: "0 16px 48px rgba(0,0,0,0.18)", width: 600, maxWidth: "95vw", maxHeight: "80vh", display: "flex", flexDirection: "column", overflow: "hidden" }}
+              onClick={e => e.stopPropagation()}>
+              {/* Header */}
+              <div style={{ padding: "18px 24px", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#1a2744" }}>📋 PPL RLOG Commentaires</div>
+                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>ID : {pplrlogModal}</div>
+                </div>
+                <button onClick={() => setPplrlogModal(null)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#94a3b8", padding: 4 }}>✕</button>
+              </div>
+              {/* Input */}
+              <div style={{ padding: "16px 24px", borderBottom: "1px solid #f1f5f9" }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#1a2744", marginBottom: 8 }}>Ajouter un commentaire :</div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <input
+                    value={pplrlogInput}
+                    onChange={e => setPplrlogInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter" && pplrlogInput.trim()) {
+                        setPplrlogComments(prev => ({ ...prev, [pplrlogModal]: [...(prev[pplrlogModal] || []), { user: currentUser || "Utilisateur", comment: pplrlogInput.trim() }] }));
+                        setPplrlogInput("");
+                      }
+                    }}
+                    placeholder="Saisir un commentaire PPL RLOG..."
+                    style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontSize: 13, outline: "none" }}
+                    onFocus={e => e.currentTarget.style.borderColor = "#3b82f6"}
+                    onBlur={e => e.currentTarget.style.borderColor = "#e2e8f0"} />
+                  <button
+                    onClick={() => {
+                      if (!pplrlogInput.trim()) return;
+                      setPplrlogComments(prev => ({ ...prev, [pplrlogModal]: [...(prev[pplrlogModal] || []), { user: currentUser || "Utilisateur", comment: pplrlogInput.trim() }] }));
+                      setPplrlogInput("");
+                    }}
+                    style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: "#1a2744", color: "#fff", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
+                    Ajouter
+                  </button>
+                </div>
+              </div>
+              {/* Table */}
+              <div style={{ overflowY: "auto", flex: 1 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: "#f8fafc", position: "sticky", top: 0 }}>
+                      {["Utilisateur", "PPL RLOG Commentaire"].map(h => (
+                        <th key={h} style={{ padding: "10px 16px", textAlign: "left", fontWeight: 600, fontSize: 11, color: "#475569", textTransform: "uppercase", letterSpacing: 0.4, borderBottom: "1px solid #e2e8f0" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {entries.length === 0 ? (
+                      <tr><td colSpan={2} style={{ padding: 32, textAlign: "center", color: "#94a3b8", fontStyle: "italic" }}>Aucun commentaire PPL RLOG pour cette ligne.</td></tr>
+                    ) : entries.map((e, i) => (
+                      <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "#fafbfc" }}>
+                        <td style={{ padding: "9px 16px", borderBottom: "1px solid #f1f5f9", fontWeight: 600, color: "#1a2744", whiteSpace: "nowrap", width: 160 }}>{e.user}</td>
+                        <td style={{ padding: "9px 16px", borderBottom: "1px solid #f1f5f9", color: "#374151" }}>{e.comment}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ padding: "10px 24px", borderTop: "1px solid #f1f5f9", fontSize: 12, color: "#94a3b8" }}>
+                {entries.length} commentaire{entries.length !== 1 ? "s" : ""}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Modal: Commentaires généraux ───────────────── */}
+      {commentsModal && (() => {
+        const entries = generalComments[commentsModal] || [];
+        return (
+          <div style={{ position: "fixed", inset: 0, zIndex: 2000, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center" }}
+            onClick={() => setCommentsModal(null)}>
+            <div style={{ background: "#fff", borderRadius: 14, boxShadow: "0 16px 48px rgba(0,0,0,0.18)", width: 600, maxWidth: "95vw", maxHeight: "80vh", display: "flex", flexDirection: "column", overflow: "hidden" }}
+              onClick={e => e.stopPropagation()}>
+              {/* Header */}
+              <div style={{ padding: "18px 24px", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#1a2744" }}>💬 Commentaires</div>
+                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>ID : {commentsModal}</div>
+                </div>
+                <button onClick={() => setCommentsModal(null)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#94a3b8", padding: 4 }}>✕</button>
+              </div>
+              {/* Input */}
+              <div style={{ padding: "16px 24px", borderBottom: "1px solid #f1f5f9" }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#1a2744", marginBottom: 8 }}>Ajouter un commentaire :</div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <input
+                    value={commentsInput}
+                    onChange={e => setCommentsInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter" && commentsInput.trim()) {
+                        setGeneralComments(prev => ({ ...prev, [commentsModal]: [...(prev[commentsModal] || []), { user: currentUser || "Utilisateur", comment: commentsInput.trim() }] }));
+                        setCommentsInput("");
+                      }
+                    }}
+                    placeholder="Saisir un commentaire..."
+                    style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontSize: 13, outline: "none" }}
+                    onFocus={e => e.currentTarget.style.borderColor = "#3b82f6"}
+                    onBlur={e => e.currentTarget.style.borderColor = "#e2e8f0"} />
+                  <button
+                    onClick={() => {
+                      if (!commentsInput.trim()) return;
+                      setGeneralComments(prev => ({ ...prev, [commentsModal]: [...(prev[commentsModal] || []), { user: currentUser || "Utilisateur", comment: commentsInput.trim() }] }));
+                      setCommentsInput("");
+                    }}
+                    style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: "#1a2744", color: "#fff", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
+                    Ajouter
+                  </button>
+                </div>
+              </div>
+              {/* Table */}
+              <div style={{ overflowY: "auto", flex: 1 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: "#f8fafc", position: "sticky", top: 0 }}>
+                      {["Utilisateur", "Commentaire"].map(h => (
+                        <th key={h} style={{ padding: "10px 16px", textAlign: "left", fontWeight: 600, fontSize: 11, color: "#475569", textTransform: "uppercase", letterSpacing: 0.4, borderBottom: "1px solid #e2e8f0" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {entries.length === 0 ? (
+                      <tr><td colSpan={2} style={{ padding: 32, textAlign: "center", color: "#94a3b8", fontStyle: "italic" }}>Aucun commentaire pour cette ligne.</td></tr>
+                    ) : entries.map((e, i) => (
+                      <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "#fafbfc" }}>
+                        <td style={{ padding: "9px 16px", borderBottom: "1px solid #f1f5f9", fontWeight: 600, color: "#1a2744", whiteSpace: "nowrap", width: 160 }}>{e.user}</td>
+                        <td style={{ padding: "9px 16px", borderBottom: "1px solid #f1f5f9", color: "#374151" }}>{e.comment}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ padding: "10px 24px", borderTop: "1px solid #f1f5f9", fontSize: 12, color: "#94a3b8" }}>
+                {entries.length} commentaire{entries.length !== 1 ? "s" : ""}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
