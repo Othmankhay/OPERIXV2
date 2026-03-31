@@ -1077,6 +1077,159 @@ function ProcureApp({ currentUser }) {
     return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
 
+  // History management for browser back/forward navigation
+  useEffect(() => {
+    const handlePopState = (event) => {
+      if (event.state) {
+        const state = event.state;
+        setActivePage(state.activePage || "table");
+        setActivePanel(state.activePanel || "");
+        setSelectedStatut(state.selectedStatut || "");
+        setSearch(state.search || "");
+        setSince(state.since || "");
+        setCurrentPage(state.currentPage || 1);
+        setSelectedFournisseur(state.selectedFournisseur || "");
+        setSelectedRows(state.selectedRows || []);
+        setShowFournisseurs(state.showFournisseurs || false);
+        setShowColPanel(state.showColPanel || false);
+        setColorLines(state.colorLines !== undefined ? state.colorLines : false);
+        setVisibleCols(state.visibleCols || DEFAULT_VISIBLE);
+        setFrozenUpTo(state.frozenUpTo || "");
+        setPageSize(state.pageSize || 25);
+        setSelectedProjet(state.selectedProjet || "");
+        setSelectedSousProjet(state.selectedSousProjet || "");
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  // Function to navigate with history
+  const navigateWithHistory = (newPage, newPanel = "") => {
+    const state = {
+      activePage: newPage,
+      activePanel: newPanel,
+      selectedStatut,
+      search,
+      since,
+      currentPage,
+      selectedFournisseur,
+      selectedRows,
+      showFournisseurs,
+      showColPanel,
+      colorLines,
+      visibleCols,
+      frozenUpTo,
+      pageSize,
+      selectedProjet,
+      selectedSousProjet,
+    };
+
+    // Push new state to history
+    window.history.pushState(state, "", `#${newPage}${newPanel ? `-${newPanel}` : ""}`);
+    
+    // Update state
+    setActivePage(newPage);
+    setActivePanel(newPanel);
+  };
+
+  // Save current state to sessionStorage for persistence
+  const saveStateToStorage = () => {
+    const state = {
+      activePage,
+      activePanel,
+      selectedStatut,
+      search,
+      since,
+      currentPage,
+      selectedFournisseur,
+      selectedRows,
+      showFournisseurs,
+      showColPanel,
+      colorLines,
+      visibleCols,
+      frozenUpTo,
+      pageSize,
+      selectedProjet,
+      selectedSousProjet,
+    };
+    sessionStorage.setItem("appState", JSON.stringify(state));
+  };
+
+  // Load state from sessionStorage
+  const loadStateFromStorage = () => {
+    try {
+      const saved = sessionStorage.getItem("appState");
+      if (saved) {
+        const state = JSON.parse(saved);
+        setActivePage(state.activePage || "table");
+        setActivePanel(state.activePanel || "");
+        setSelectedStatut(state.selectedStatut || "");
+        setSearch(state.search || "");
+        setSince(state.since || "");
+        setCurrentPage(state.currentPage || 1);
+        setSelectedFournisseur(state.selectedFournisseur || "");
+        setSelectedRows(state.selectedRows || []);
+        setShowFournisseurs(state.showFournisseurs || false);
+        setShowColPanel(state.showColPanel || false);
+        setColorLines(state.colorLines !== undefined ? state.colorLines : false);
+        setVisibleCols(state.visibleCols || DEFAULT_VISIBLE);
+        setFrozenUpTo(state.frozenUpTo || "");
+        setPageSize(state.pageSize || 25);
+        setSelectedProjet(state.selectedProjet || "");
+        setSelectedSousProjet(state.selectedSousProjet || "");
+      }
+    } catch (err) {
+      console.warn("Failed to load state from storage:", err);
+    }
+  };
+
+  // Load initial state on mount
+  useEffect(() => {
+    const savedState = sessionStorage.getItem("appState");
+    const hash = window.location.hash.slice(1); // Remove the #
+    
+    if (savedState) {
+      // Load from sessionStorage
+      loadStateFromStorage();
+    } else if (hash) {
+      // Load from URL hash
+      const [page, panel] = hash.split('-');
+      if (page) {
+        setActivePage(page);
+        setActivePanel(panel || "");
+      }
+    } else {
+      // Default initial state
+      setActivePage("table");
+      setActivePanel("");
+      window.history.replaceState({
+        activePage: "table",
+        activePanel: "",
+        selectedStatut: "",
+        search: "",
+        since: "",
+        currentPage: 1,
+        selectedFournisseur: "",
+        selectedRows: [],
+        showFournisseurs: false,
+        showColPanel: false,
+        colorLines: false,
+        visibleCols: DEFAULT_VISIBLE,
+        frozenUpTo: "",
+        pageSize: 25,
+        selectedProjet: "",
+        selectedSousProjet: "",
+      }, "", "#table");
+    }
+  }, []);
+
+  // Save state whenever it changes
+  useEffect(() => {
+    saveStateToStorage();
+  }, [activePage, activePanel, selectedStatut, search, since, currentPage, selectedFournisseur, selectedRows, showFournisseurs, showColPanel, colorLines, visibleCols, frozenUpTo, pageSize, selectedProjet, selectedSousProjet]);
+
   const showToasts = () => setToasts(TOAST_CONFIGS.map((t, i) => ({ ...t, id: Date.now() + i })));
 
   const clearFilters = () => {
@@ -1128,7 +1281,7 @@ function ProcureApp({ currentUser }) {
     setSearch(criteria.search || "");
     setSince(criteria.since || "");
     setCurrentPage(1);
-    setActivePage("table"); setActivePanel("");
+    navigateWithHistory("table", "");
   };
 
   const saveCurrentFilter = () => {
@@ -1170,7 +1323,7 @@ function ProcureApp({ currentUser }) {
         {toasts.map((t, i) => (
           <Toast key={t.id} t={t} index={i}
             onClose={() => setToasts(prev => prev.filter(x => x.id !== t.id))}
-            onApply={st => { setSelectedStatut(st); setActivePage("table"); setActivePanel(""); }} />
+            onApply={st => { setSelectedStatut(st); navigateWithHistory("table", ""); }} />
         ))}
       </div>
 
@@ -1255,7 +1408,7 @@ function ProcureApp({ currentUser }) {
 
                   <div style={{ height: 1, background: "#f1f5f9", margin: "12px 0" }} />
 
-                  <button onClick={() => { setActivePage("profil"); setShowProfileMenu(false); }} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", borderRadius: 8, border: "none", background: "#f8fafc", color: "#1a2744", fontWeight: 600, fontSize: 13, cursor: "pointer", transition: "background 0.2s", marginBottom: 6 }}
+                  <button onClick={() => { navigateWithHistory("profil", ""); setShowProfileMenu(false); }} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", borderRadius: 8, border: "none", background: "#f8fafc", color: "#1a2744", fontWeight: 600, fontSize: 13, cursor: "pointer", transition: "background 0.2s", marginBottom: 6 }}
                     onMouseEnter={e => e.currentTarget.style.background = "#eff6ff"} onMouseLeave={e => e.currentTarget.style.background = "#f8fafc"}>
                     <span style={{ fontSize: 16 }}>👤</span> Mon Profil
                   </button>
@@ -1290,8 +1443,8 @@ function ProcureApp({ currentUser }) {
             const isActive = item.type === "page" ? activePage === item.page && !activePanel : activePanel === item.panel;
             return (
               <div key={item.label} title={!sidebarOpen ? item.label : ""} onClick={() => {
-                if (item.type === "page") { setActivePage(item.page); setActivePanel(""); }
-                else { setActivePanel(activePanel === item.panel ? "" : item.panel); setActivePage("table"); }
+                if (item.type === "page") { navigateWithHistory(item.page, ""); }
+                else { setActivePanel(activePanel === item.panel ? "" : item.panel); navigateWithHistory("table", activePanel === item.panel ? "" : item.panel); }
               }} style={{
                 display: "flex", alignItems: "center", gap: 10, padding: sidebarOpen ? "10px 16px" : "10px 0",
                 cursor: "pointer", background: isActive ? "#eff6ff" : "transparent",
@@ -1320,9 +1473,9 @@ function ProcureApp({ currentUser }) {
                 const isActive = item.type === "special" ? (activePage === item.page && activePanel === item.panel) : (item.type === "page" ? activePage === item.page && !activePanel : activePanel === item.panel);
                 return (
                   <div key={item.label} title={!sidebarOpen ? item.label : ""} onClick={() => {
-                    if (item.type === "special") { setActivePage(item.page); setActivePanel(item.panel); }
-                    else if (item.type === "page") { setActivePage(item.page); setActivePanel(""); }
-                    else { setActivePanel(activePanel === item.panel ? "" : item.panel); setActivePage("table"); }
+                    if (item.type === "special") { navigateWithHistory(item.page, item.panel); }
+                    else if (item.type === "page") { navigateWithHistory(item.page, ""); }
+                    else { setActivePanel(activePanel === item.panel ? "" : item.panel); navigateWithHistory("table", activePanel === item.panel ? "" : item.panel); }
                   }} style={{
                     display: "flex", alignItems: "center", gap: 10, padding: sidebarOpen ? "8px 16px 8px 28px" : "10px 0",
                     cursor: "pointer", background: isActive ? "#eff6ff" : "transparent",
@@ -1609,7 +1762,7 @@ function ProcureApp({ currentUser }) {
         }}>
           {/* Breadcrumb */}
           <div style={{ background: "#fff", borderBottom: "1px solid #f1f5f9", padding: "10px 20px", fontSize: 13, color: "#64748b", flexShrink: 0 }}>
-            <span onClick={() => { setActivePage("table"); setActivePanel(""); clearFilters(); }} style={{ cursor: "pointer", fontWeight: 600, color: "#3b82f6" }}>OPERIX</span>
+            <span onClick={() => { navigateWithHistory("table", ""); clearFilters(); }} style={{ cursor: "pointer", fontWeight: 600, color: "#3b82f6" }}>OPERIX</span>
             {selectedProjet && <span> › {selectedProjet}</span>}
             {selectedSousProjet && <span> › {selectedSousProjet}</span>}
             <span> › {navPageLabel()}</span>
@@ -1617,10 +1770,10 @@ function ProcureApp({ currentUser }) {
 
           {/* Page routing */}
           {activePage === "dashboard" && <PageDashboard data={tableData} previousData={previousData} importDiff={importDiff} cumulativeStats={cumulativeStats}
-            onFilter={st => { setSelectedStatut(st); setActivePage("table"); setActivePanel(""); setCurrentPage(1); }}
-            onSetFournisseur={f => { setSelectedFournisseur(f); setActivePage("table"); setActivePanel(""); setCurrentPage(1); }}
-            onSetProjet={p => { setSelectedProjet(p); setActivePage("table"); setActivePanel(""); setCurrentPage(1); }}
-            onSearch={s => { setSearch(s); setActivePage("table"); setActivePanel(""); setCurrentPage(1); }}
+            onFilter={st => { setSelectedStatut(st); navigateWithHistory("table", ""); setCurrentPage(1); }}
+            onSetFournisseur={f => { setSelectedFournisseur(f); navigateWithHistory("table", ""); setCurrentPage(1); }}
+            onSetProjet={p => { setSelectedProjet(p); navigateWithHistory("table", ""); setCurrentPage(1); }}
+            onSearch={s => { setSearch(s); navigateWithHistory("table", ""); setCurrentPage(1); }}
           />}
           {activePage === "profil" && <PageProfil onLogout={() => window.location.reload()} />}
           {activePage === "imports" && <PageImports
@@ -1653,8 +1806,7 @@ function ProcureApp({ currentUser }) {
               setActivePanel("");
             }}
             onNavigateToTable={() => {
-              setActivePage("table");
-              setActivePanel("");
+              navigateWithHistory("table", "");
             }}
           />}
           {activePage === "export" && <PageExport filteredCount={filtered.length} totalCount={tableData.length} />}
@@ -1997,7 +2149,7 @@ function ProcureApp({ currentUser }) {
       {ficheFournisseur && (
         <FicheFournisseur fournisseur={ficheFournisseur} data={tableData}
           onClose={() => setFicheFournisseur(null)}
-          onFilter={f => { setSelectedFournisseur(f); setActivePage("table"); setActivePanel(""); setCurrentPage(1); }} />
+          onFilter={f => { setSelectedFournisseur(f); navigateWithHistory("table", ""); setCurrentPage(1); }} />
       )}
     </div>
   );
