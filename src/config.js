@@ -17,61 +17,73 @@ export const PROJETS = {
 };
 
 export const ALL_COLUMNS = [
+  // Identification
   { key: "id", label: "ID" },
-  { key: "nomProjet", label: "Projet" },
+  { key: "isExpired", label: "Expiré" },
+  { key: "nomProjet", label: "Nom du Projet" },
   { key: "utilisateurPSA", label: "Utilisateur PSA" },
   { key: "article", label: "Article" },
-  { key: "codeFournisseur", label: "Code Fourn." },
-  { key: "nomFournisseur", label: "Nom Fourn." },
-  { key: "magasin", label: "Magasin" },
-  { key: "site", label: "Site" },
-  { key: "dernierCommentaire", label: "Commentaire" },
-  { key: "dernierPPLRLOG", label: "PPL/RLOG" },
-  { key: "statut", label: "Statut" },
-  { key: "psaId", label: "PSA ID" },
-  { key: "documentAchat", label: "Doc. Achat" },
-  { key: "sousProjet", label: "Sous-projet" },
-  { key: "serie", label: "Série" },
-  { key: "domaine", label: "Domaine" },
+  { key: "designation", label: "Désignation" },
+  { key: "codeFournisseur", label: "Fourn" },
+  { key: "nomFournisseur", label: "Nom fournisseur" },
   { key: "ru", label: "RU" },
   { key: "affaire", label: "Affaire" },
-  { key: "reference", label: "Référence" },
-  { key: "article10", label: "Article 10" },
-  { key: "designation", label: "Désignation" },
-  { key: "typeImport", label: "Type Import" },
-  { key: "dateTransfertPegase", label: "Date Pégase" },
-  { key: "quantiteEcheancee", label: "Qté Éch." },
-  { key: "quantiteLivree", label: "Qté Livrée" },
-  { key: "dateEcheance", label: "Date Éch." },
-  { key: "dateLivraisonConfirmee", label: "Date Livr. Conf." },
-  { key: "dateEnvoiCommande", label: "Date Envoi Cmd." },
+  
+  // Logistics
+  { key: "dateEcheance", label: "Date d'échéance" },
+  { key: "quantiteEcheancee", label: "Qté échéancée" },
+  { key: "quantiteLivree", label: "Qté livrée" },
+  { key: "magasin", label: "Mag" },
+  { key: "site", label: "Site" },
+  { key: "dateTransfertPegase", label: "Date de transfert Pegase" },
+  { key: "psaId", label: "PSA ID" },
+  { key: "sousProjet", label: "Sous projet" },
+  { key: "documentAchat", label: "Doc achat" },
+  { key: "article10", label: "Article10" },
+  { key: "evolutionQuantiteReception", label: "Evolution de quantité après réception" },
+  { key: "multilignesTotal", label: "Multilignes Totale" },
+  { key: "multilignesRecu", label: "Multilignes reçu" },
+  { key: "fauxManquant", label: "Faux manquant" },
+  { key: "livraisonPointDur", label: "Livr Pt Dur" },
+  { key: "pastillage", label: "Pastillage" },
+  { key: "numeroPastillage", label: "N° pastillage" },
+  
+  // Delivery
+  { key: "promesseLivraisonPilote", label: "Promesse livraison pilote pastillage" },
+  { key: "dateLivraisonConfirmee", label: "Date de livraison confirmée" },
+  { key: "dateEnvoiCommande", label: "Date d'envoi de commande" },
+  { key: "confirmeDate", label: "Confirmé date de livraison" },
+  { key: "etape", label: "Étape" },
+  { key: "dateEchLundi", label: "Date Ech Lundi" },
+  { key: "dernierCommentaire", label: "Dernier commentaire" },
   { key: "motCle", label: "Mot clé" },
-  { key: "indicateur", label: "Indicateur" },
-  { key: "fauxManquant", label: "Faux Manquant" },
-  { key: "livraisonPointDur", label: "Livr. Point dur" },
-  { key: "confirmeDate", label: "Date Confirmée" },
+  { key: "dernierPPLRLOG", label: "Dernier PPL RLOG Commentaire" },
+  
+  // Archiving/Metadata
+  { key: "statut", label: "Statut" },
+  { key: "dateAjout", label: "Date d'ajout" },
+  { key: "archiveFlag", label: "Archivé" },
+  { key: "dateArchivage", label: "Date d'archivage" },
+  { key: "typeVsPF", label: "VS/P/F?" },
+  { key: "typeImport", label: "Type Import" },
+  
+  // Proposed
+  { key: "priorite", label: "Priorité" },
+  { key: "commentairesInternes", label: "Commentaires Internes" },
+  { key: "coutUnitaire", label: "Coût Unitaire" },
+  { key: "dateModification", label: "Date de la Dernière Modification" },
+  { key: "responsable", label: "Responsable" },
 ];
 
-export const DEFAULT_VISIBLE = ["id","nomProjet","utilisateurPSA","article","codeFournisseur","nomFournisseur","magasin","site","dernierCommentaire","dernierPPLRLOG","statut"];
+// Essential columns visible by default
+export const DEFAULT_VISIBLE = ["id","nomProjet","article","statut","dateEcheance","quantiteEcheancee","quantiteLivree","nomFournisseur","dateLivraisonConfirmee"];
 
-const PROJETS_KEYS = Object.keys(PROJETS);
-const STATUTS_DISTRIBUTION = [
-  'En cours','En cours','En cours','En cours',
-  'Confirmé','Confirmé','Confirmé',
-  'Reçu','Reçu','Reçu',
-  'Retard','Retard',
-  'À venir','À venir',
-  'Manquant',
-  'Point dur',
-  'Faux manquant',
-  'Manquants Plus',
-];
+// All mock data removed - app uses real imported data only
 
-const FOURNISSEURS = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta'];
-const USERS = ['Dupont M.', 'Martin L.', 'Leroy J.', 'Bernard A.', 'Moreau C.', 'Simon P.', 'Petit R.', 'Durand H.'];
-const SITES = ['Poissy', 'Mulhouse', 'Sochaux', 'Rennes', 'Valenciennes'];
-const DOMAINES = ['Mécanique', 'Roulement', 'Étanchéité', 'Électrique', 'Tôlerie', 'Pneumatique', 'Câblage', 'Visserie', 'Tuyauterie', 'Motorisation'];
-
+// MOCK_DATA DISABLED FOR REAL DATA TESTING
+// To re-enable mock data, uncomment the block below
+export const MOCK_DATA = [];
+/*
 export const MOCK_DATA = Array.from({ length: 100 }, (_, i) => {
   const nomProjet = PROJETS_KEYS[i % PROJETS_KEYS.length];
   const sousProjet = PROJETS[nomProjet][i % PROJETS[nomProjet].length];
@@ -112,6 +124,7 @@ export const MOCK_DATA = Array.from({ length: 100 }, (_, i) => {
     dernierPPLRLOG: ""
   };
 });
+*/
 
 export const TOAST_CONFIGS = [
   { message: "🔴 3 nouvelles pièces critiques", type: "critical", filterStatut: "Manquants Plus" },

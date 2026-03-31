@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { STATUT_CONFIG, PROJETS, ALL_COLUMNS, DEFAULT_VISIBLE, MOCK_DATA, TOAST_CONFIGS, TOAST_STYLES, SIDEBAR_ITEMS } from "./config";
+import { getStatusColor, getAllStatusColors } from "./statusColorManager";
+import ColumnSelectionModal from "./ColumnManager";
 import PageGraphique from "./PageGraphique";
 import PageJournal from "./PageJournal";
 import PageImports from "./PageImports";
@@ -21,7 +23,7 @@ function Toast({ t, index, onClose, onApply }) {
       if (elapsed >= 10000) { clearInterval(iv); onClose(); }
     }, 50);
     return () => clearInterval(iv);
-  }, []);
+  }, [onClose]);
   return (
     <div onClick={() => { onApply(t.filterStatut); onClose(); }} style={{
       position: "relative", padding: "12px 40px 12px 16px", borderRadius: 10, border: `1px solid ${ts.border}`,
@@ -87,17 +89,7 @@ function buildMonthlyData(data) {
     if (!byMonth[month]) byMonth[month] = {};
     byMonth[month][d.statut] = (byMonth[month][d.statut] || 0) + 1;
   });
-  const hasData = Object.keys(byMonth).length > 0;
-  // Fallback to static demo data when no real dates available
-  if (!hasData) return {
-    mois: MOIS_LABELS,
-    series: [
-      { label: 'Reçu',           color: '#16a34a', data: [8,14,14,9,2,0,5,12,15,11,3,0] },
-      { label: 'En cours',       color: '#3b82f6', data: [12,10,8,11,14,16,13,9,7,10,12,15] },
-      { label: 'Retard',         color: '#e67e22', data: [3,2,4,3,5,6,4,3,2,4,5,3] },
-      { label: 'Manquants Plus', color: '#c0392b', data: [1,0,1,2,3,4,2,1,0,1,2,3] },
-    ]
-  };
+  // Only return data from real imported data
   return {
     mois: MOIS_LABELS,
     series: CHART_SERIES_CFG.map(s => ({
@@ -837,7 +829,7 @@ function PageRapportImpact({
           </thead>
           <tbody>
             {paged.map((row, i) => {
-              const sc = STATUT_CONFIG[row.statut] || { bg: "#f1f5f9", color: "#475569", dot: "#475569" };
+              const sc = getStatusColor(row.statut);
               let sriBg = "#f1f5f9", sriColor = "#475569";
               if (row.statutRapportImpact === "Bloquant") { sriBg = "#fde8e8"; sriColor = "#c0392b"; }
               else if (row.statutRapportImpact === "À surveiller") { sriBg = "#fff3e0"; sriColor = "#e67e22"; }
@@ -954,7 +946,27 @@ export default function AppWrapper() {
    ═══════════════════════════════════════════════════════ */
 function ProcureApp({ currentUser }) {
   const [toasts, setToasts] = useState([]);
-  const [visibleCols, setVisibleCols] = useState(DEFAULT_VISIBLE);
+  
+  // Initialize visible columns from localStorage or use defaults
+  const [visibleCols, setVisibleColsState] = useState(() => {
+    try {
+      const saved = localStorage.getItem("visibleColumns");
+      return saved ? JSON.parse(saved) : DEFAULT_VISIBLE;
+    } catch {
+      return DEFAULT_VISIBLE;
+    }
+  });
+  
+  // Wrapper function to save to localStorage whenever columns change
+  const setVisibleCols = (cols) => {
+    setVisibleColsState(cols);
+    try {
+      localStorage.setItem("visibleColumns", JSON.stringify(cols));
+    } catch (e) {
+      console.warn("Failed to save visible columns to localStorage:", e);
+    }
+  };
+  
   const [showColPanel, setShowColPanel] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedProjet, setSelectedProjet] = useState("");
@@ -986,6 +998,13 @@ function ProcureApp({ currentUser }) {
   const [selectedFournisseur, setSelectedFournisseur] = useState("");
   const [ficheFournisseur, setFicheFournisseur] = useState(null);
   const [frozenUpTo, setFrozenUpTo] = useState("");
+  const [importHistory, setImportHistory] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("importHistory")) || [];
+    } catch {
+      return [];
+    }
+  });
   const [savedFilters, setSavedFilters] = useState([
     { id: 1, name: "Retards Multi Projets", criteria: { selectedProjet: "Multi Projets", selectedSousProjet: "", selectedStatut: "Retard", selectedFournisseur: "", search: "", since: "" } },
     { id: 2, name: "Manquants Ferrage", criteria: { selectedProjet: "Ferrage Projet", selectedSousProjet: "", selectedStatut: "Manquants Plus", selectedFournisseur: "", search: "", since: "" } },
@@ -1040,6 +1059,22 @@ function ProcureApp({ currentUser }) {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setToasts(TOAST_CONFIGS.map((t, i) => ({ ...t, id: i })));
+  }, []);
+
+  // Listen for importHistory changes in localStorage
+  useEffect(() => {
+    const handleStorageChange = (e) => {
+      if (e.key === "importHistory" || e.key === null) {
+        try {
+          const updated = JSON.parse(localStorage.getItem("importHistory")) || [];
+          setImportHistory(updated);
+        } catch (err) {
+          console.warn("Failed to reload importHistory:", err);
+        }
+      }
+    };
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
 
   const showToasts = () => setToasts(TOAST_CONFIGS.map((t, i) => ({ ...t, id: Date.now() + i })));
@@ -1543,7 +1578,7 @@ function ProcureApp({ currentUser }) {
                     {["Manquants Plus", "Manquant", "Point dur"].map(st => {
                       const count = filtered.filter(d => d.statut === st).length;
                       const h = Math.max(8, count * 25);
-                      const sc = STATUT_CONFIG[st] || { dot: "#cbd5e1" };
+                      const sc = getStatusColor(st);
                       return (
                         <div key={st} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
                           <span style={{ fontSize: 11, fontWeight: 700, color: sc.dot, marginBottom: 3 }}>{count}</span>
@@ -1623,8 +1658,8 @@ function ProcureApp({ currentUser }) {
             }}
           />}
           {activePage === "export" && <PageExport filteredCount={filtered.length} totalCount={tableData.length} />}
-          {activePage === "graphique" && <PageGraphique />}
-          {activePage === "journal" && <PageJournal />}
+          {activePage === "graphique" && <PageGraphique data={tableData} />}
+          {activePage === "journal" && <PageJournal importHistory={importHistory} />}
           {activePage === "otd" && <PageOTD />}
           {activePage === "rapport-rft" && <PageRFT />}
 
@@ -1742,7 +1777,7 @@ function ProcureApp({ currentUser }) {
                 <select value={selectedStatut} onChange={e => { setSelectedStatut(e.target.value); setCurrentPage(1); }}
                   style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#f8fafc", fontSize: 13, cursor: "pointer" }}>
                   <option value="">Tous les statuts</option>
-                  {Object.keys(STATUT_CONFIG).map(s => <option key={s} value={s}>{s}</option>)}
+                  {Object.keys(getAllStatusColors()).map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
                 <div style={{ flex: 1, position: "relative", minWidth: 180 }}>
                   <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 14 }}>🔍</span>
@@ -1770,30 +1805,12 @@ function ProcureApp({ currentUser }) {
               </div>
 
               {/* Column panel */}
-              {showColPanel && (
-                <div style={{ background: "#fff", borderRadius: 12, padding: 16, marginBottom: 14, border: "1px solid #e2e8f0" }}>
-                  <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-                    <button onClick={() => setVisibleCols(ALL_COLUMNS.map(c => c.key))} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#f8fafc", cursor: "pointer", fontSize: 13, fontWeight: 500 }}>Tout afficher</button>
-                    <button onClick={() => setVisibleCols(DEFAULT_VISIBLE)} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#f8fafc", cursor: "pointer", fontSize: 13, fontWeight: 500 }}>Réinitialiser</button>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
-                    {ALL_COLUMNS.map(col => {
-                      const checked = visibleCols.includes(col.key);
-                      return (
-                        <label key={col.key} style={{
-                          display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 8, cursor: "pointer",
-                          background: checked ? "#eff6ff" : "#fff", border: checked ? "1px solid #bfdbfe" : "1px solid #e2e8f0", fontSize: 13
-                        }}>
-                          <input type="checkbox" checked={checked} onChange={() => {
-                            setVisibleCols(prev => checked ? prev.filter(k => k !== col.key) : [...prev, col.key]);
-                          }} />
-                          {col.label}
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+              <ColumnSelectionModal 
+                isOpen={showColPanel}
+                onClose={() => setShowColPanel(false)}
+                visibleColumns={visibleCols}
+                onColumnsChange={setVisibleCols}
+              />
 
               </div>
               <div style={{ flex: 1, padding: "0 20px 20px 20px", display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -1841,7 +1858,7 @@ function ProcureApp({ currentUser }) {
                   </thead>
                   <tbody>
                     {paged.map((row, i) => {
-                      const sc = STATUT_CONFIG[row.statut] || { bg: "#f1f5f9", color: "#475569", dot: "#475569" };
+                      const sc = getStatusColor(row.statut);
                       const isSelected = selectedRows.includes(row.id);
                       let rowBg = i % 2 === 1 ? "#fafbfc" : "#fff";
                       if (isSelected) rowBg = "#dbeafe";

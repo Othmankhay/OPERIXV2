@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import * as XLSX from "xlsx";
+import { detectNewStatuses as _, generateStatusMappingReport, getStatusColor } from "./statusColorManager";
 
 /* ─── Field mapping configuration ──────────────────────────────────── */
 const FIELD_MAP = [
@@ -32,15 +33,14 @@ const FIELD_MAP = [
 const GUARANTEED_FIELDS = ["quantiteLivree","dateLivraisonConfirmee","dateEnvoiCommande","psaId","ru","affaire"];
 
 /* ─── Validation ───────────────────────────────────────────────────── */
-const VALID_STATUTS = ["Manquants Plus","Point dur","À venir","Retard","Manquant","Confirmé","Faux manquant","Reçu","En cours"];
 const DATE_RE = /^(\d{2}\/\d{2}\/\d{4}(?:\s+\d{2}:\d{2}(?::\d{2})?)?|\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?)$/;
 
 function validateRow(row) {
   const issues = [];
   if (!row.id)            issues.push({ field: "id",     type: "missing" });
   if (!row.article)       issues.push({ field: "article",type: "missing" });
-  if (row.statut && !VALID_STATUTS.includes(row.statut))
-    issues.push({ field: "statut", type: "invalid", value: row.statut });
+  // Note: Statut validation now accepts any non-empty value
+  // New statuses will be automatically detected and assigned colors
   ["dateEcheance","dateLivraisonConfirmee","dateEnvoiCommande"].forEach(f => {
     if (row[f] && !DATE_RE.test(String(row[f]).trim()))
       issues.push({ field: f, type: "date_format" });
@@ -241,17 +241,8 @@ const PREVIEW_COLS = [
   { key: "dateEcheance",   label: "Échéance" },
 ];
 
-const STATUT_COLORS = {
-  "Manquants Plus": "#c0392b",
-  "Point dur":      "#7d3c98",
-  "Retard":         "#e67e22",
-  "Manquant":       "#e84393",
-  "Confirmé":       "#2e86c1",
-  "En cours":       "#1e8449",
-  "Reçu":           "#27ae60",
-  "À venir":        "#a0522d",
-  "Faux manquant":  "#7f8c8d",
-};
+// Note: STATUT_COLORS is now dynamically loaded from statusColorManager
+// Use getStatusColor(statusName) to get the text color for a specific status
 
 /* ─── Main component ───────────────────────────────────────────────── */
 /* ─── Auto-journal generation ─────────────────────────────────────── */
@@ -277,6 +268,7 @@ function generateJournal(fileInfo, currentData, importMode) {
   if (modified > 0) parts.push(`${modified} modifiée${modified > 1 ? "s" : ""}`);
   if (deleted  > 0) parts.push(`${deleted} supprimée${deleted > 1 ? "s" : ""}`);
   if (newCols.length > 0) parts.push(`col. ajoutées : ${newCols.slice(0, 3).join(", ")}${newCols.length > 3 ? "…" : ""}`);
+  if (fileInfo.isCombined) parts.push(`Combiné : EL+OM+OP`);
   if (parts.length === 0) parts.push("Aucun changement détecté");
   return parts.join(" · ");
 }
@@ -285,11 +277,15 @@ export default function PageImports({ onImport, currentData, currentUser }) {
   const [step, setStep] = useState(0);
   const [fileInfo, setFileInfo] = useState(null);
   // { fileName, fileSize, sheetName, excelHeaders, rows, mapping, mappedRows, validation, dupeInfo }
+  const [importFileMode, setImportFileMode] = useState(null); // "single" | "multiple" | null
+  const [multiFiles, setMultiFiles] = useState({ el: null, om: null, op: null }); // For combined 3-file import
   const [isDragging, setIsDragging] = useState(false);
+  const [draggingZone, setDraggingZone] = useState(null); // null | "el" | "om" | "op"
   const [importHistory, setImportHistory] = useState([]);
   const [error, setError] = useState("");
   const [previewPage, setPreviewPage] = useState(0);
   const [importMode, setImportMode] = useState("all"); // "all" | "skip_dupes" | "update_dupes"
+  const [statusMappingReport, setStatusMappingReport] = useState(null); // Report of existing vs new statuses
 
   // Charger l'historique depuis localStorage au mount
   useEffect(() => {
@@ -356,13 +352,104 @@ export default function PageImports({ onImport, currentData, currentUser }) {
       }
     };
     reader.readAsArrayBuffer(file);
-  }, []);
+  }, [currentData]);
 
-  const handleDrop = useCallback((e) => {
+  /* ─── Process multiple files (EL, OM, OP) and combine ─────────────── */
+  const processMultipleFiles = useCallback((files) => {
+    if (!files.el || !files.om || !files.op) {
+      setError("Tous les 3 fichiers doivent être complétés (EL, OM, OP)");
+      return;
+    }
+    setError("");
+    const fileArray = [
+      { type: "EL", file: files.el },
+      { type: "OM", file: files.om },
+      { type: "OP", file: files.op },
+    ];
+    let processedCount = 0;
+    const allMappedRows = [];
+    const allValidationMaps = {};
+    let totalErrorCount = 0, totalWarnCount = 0;
+
+    const processFileItem = (fileItem) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const workbook = XLSX.read(e.target.result, { type: "array", cellDates: true });
+          const sheetName = workbook.SheetNames[0];
+          const sheet = workbook.Sheets[sheetName];
+          const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+          if (rows.length === 0) {
+            setError(`Le fichier ${fileItem.type} ne contient aucune donnée.`);
+            return;
+          }
+          const excelHeaders = Object.keys(rows[0]);
+          const mapping = buildMapping(excelHeaders);
+          const mappedRows = rows.map((row, i) => {
+            const mapped = mapRow(row, mapping, i);
+            mapped.fileSource = fileItem.type; // Track which file it came from
+            return mapped;
+          });
+          
+          // Validation
+          mappedRows.forEach(row => {
+            const issues = validateRow(row);
+            if (issues.length > 0) {
+              allValidationMaps[row.id] = issues;
+              issues.forEach(i => { if (i.type === "missing") totalErrorCount++; else totalWarnCount++; });
+            }
+          });
+          
+          allMappedRows.push(...mappedRows);
+          processedCount++;
+
+          // When all 3 files are processed, combine and show results
+          if (processedCount === 3) {
+            // Combine: merge rows, handle potential duplicates within the 3 files
+            const dupeInfo = detectDuplicates(allMappedRows, currentData);
+            const combinedFileName = `COMBINED_EL-OM-OP_${new Date().toISOString().split('T')[0]}.xlsx`;
+            setFileInfo({
+              fileName: combinedFileName,
+              fileSize: (files.el.size + files.om.size + files.op.size) / 1024,
+              sheetName: "Combined",
+              excelHeaders: [], // Not really used for combined
+              rows: allMappedRows,
+              mapping: {}, // Simplified for combined view
+              mappedRows: allMappedRows,
+              validation: { map: allValidationMaps, errorCount: totalErrorCount, warnCount: totalWarnCount },
+              dupeInfo,
+              isCombined: true,
+              sourceFiles: { el: files.el.name, om: files.om.name, op: files.op.name },
+            });
+            setPreviewPage(0);
+            setStep(1);
+          }
+        } catch (err) {
+          setError(`Erreur lors de la lecture du fichier ${fileItem.type}: ` + err.message);
+        }
+      };
+      reader.readAsArrayBuffer(fileItem.file);
+    };
+
+    fileArray.forEach(processFileItem);
+  }, [currentData]);
+
+  const handleDrop = useCallback((e, zone = null) => {
     e.preventDefault();
     setIsDragging(false);
-    processFile(e.dataTransfer.files[0]);
-  }, [processFile]);
+    setDraggingZone(null);
+    
+    if (importFileMode === "single") {
+      processFile(e.dataTransfer.files[0]);
+    } else if (importFileMode === "multiple" && zone) {
+      const newFiles = { ...multiFiles, [zone]: e.dataTransfer.files[0] };
+      setMultiFiles(newFiles);
+      // Auto-process when all 3 are ready
+      if (newFiles.el && newFiles.om && newFiles.op) {
+        processMultipleFiles(newFiles);
+      }
+    }
+  }, [importFileMode, multiFiles, processFile, processMultipleFiles]);
 
   const confirmerImport = () => {
     if (!fileInfo) {
@@ -376,13 +463,18 @@ export default function PageImports({ onImport, currentData, currentUser }) {
     let statut = "Succès";
     try {
       onImport(finalRows);
-    } catch (error) {
+    } catch {
       statut = "Échec";
     }
+    
+    // Generate status color mapping report
+    const report = generateStatusMappingReport(finalRows);
+    setStatusMappingReport(report);
+    
     const now = new Date();
     const pad = n => String(n).padStart(2, "0");
     const datetime = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
-    const ext = fileInfo.fileName.split(".").pop().toUpperCase();
+    const ext = fileInfo.isCombined ? "COMBINED" : fileInfo.fileName.split(".").pop().toUpperCase();
     const journal = generateJournal(fileInfo, currentData, importMode);
 
     const newEntry = {
@@ -399,6 +491,9 @@ export default function PageImports({ onImport, currentData, currentUser }) {
       dupes:      fileInfo.dupeInfo.dupes.length,
       errors:     fileInfo.validation.errorCount,
       mode:       importMode,
+      isCombined: fileInfo.isCombined,
+      sourceFiles: fileInfo.sourceFiles,
+      statusReport: report,
     };
 
     setImportHistory(prev => {
@@ -410,7 +505,24 @@ export default function PageImports({ onImport, currentData, currentUser }) {
     setStep(0);
   };
 
-  const annuler = () => { setFileInfo(null); setStep(0); setError(""); };
+  const annuler = () => { 
+    setFileInfo(null); 
+    setStep(0); 
+    setError(""); 
+    setStatusMappingReport(null);
+    if (importFileMode === "multiple") {
+      setMultiFiles({ el: null, om: null, op: null });
+    }
+  };
+
+  const backToModeSelection = () => {
+    setFileInfo(null);
+    setStep(0);
+    setError("");
+    setStatusMappingReport(null);
+    setImportFileMode(null);
+    setMultiFiles({ el: null, om: null, op: null });
+  };
 
   const clearImportHistory = () => {
     if (!window.confirm("Voulez-vous vraiment effacer tout l'historique des imports ?")) return;
@@ -447,66 +559,268 @@ export default function PageImports({ onImport, currentData, currentUser }) {
         </div>
       )}
 
-      {/* ─── STEP 0 : Upload ─── */}
+      {/* ─── STEP 0 : Mode Selection & Upload ─── */}
       {step === 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 20, alignItems: "start" }}>
-          <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", overflow: "hidden" }}>
-            <div style={{ padding: "16px 20px", borderBottom: "1px solid #f1f5f9" }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "#1a2744" }}>Zone d'upload</div>
-              <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>Glissez un fichier ou cliquez pour parcourir</div>
+          {/* Mode selector (show only when no mode selected yet) */}
+          {!importFileMode && (
+            <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", overflow: "hidden", gridColumn: "1 / -1" }}>
+              <div style={{ padding: "16px 20px", borderBottom: "1px solid #f1f5f9" }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#1a2744" }}>Mode d'import</div>
+                <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>Choisissez comment importer vos données</div>
+              </div>
+              <div style={{ padding: 20, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                {/* Single file mode */}
+                <div
+                  onClick={() => setImportFileMode("single")}
+                  style={{
+                    border: "2px solid #e2e8f0",
+                    borderRadius: 12,
+                    padding: 20,
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                    background: "#f8fafc",
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.borderColor = "#3b82f6";
+                    e.currentTarget.style.background = "#eff6ff";
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.borderColor = "#e2e8f0";
+                    e.currentTarget.style.background = "#f8fafc";
+                  }}
+                >
+                  <div style={{ fontSize: 32, marginBottom: 12 }}>📄</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#1a2744", marginBottom: 6 }}>Import simple</div>
+                  <div style={{ fontSize: 13, color: "#64748b", lineHeight: 1.5 }}>
+                    Importez un seul fichier (EL, OM ou OP) pour mettre à jour votre table.
+                  </div>
+                </div>
+
+                {/* Combined files mode */}
+                <div
+                  onClick={() => setImportFileMode("multiple")}
+                  style={{
+                    border: "2px solid #e2e8f0",
+                    borderRadius: 12,
+                    padding: 20,
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                    background: "#f8fafc",
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.borderColor = "#16a34a";
+                    e.currentTarget.style.background = "#f0fdf4";
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.borderColor = "#e2e8f0";
+                    e.currentTarget.style.background = "#f8fafc";
+                  }}
+                >
+                  <div style={{ fontSize: 32, marginBottom: 12 }}>📦</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#1a2744", marginBottom: 6 }}>Import combiné (EL+OM+OP)</div>
+                  <div style={{ fontSize: 13, color: "#64748b", lineHeight: 1.5 }}>
+                    Importez les 3 fichiers (EL, OM, OP) et combinez-les en une seule table.
+                  </div>
+                </div>
+              </div>
             </div>
-            <div style={{ padding: 20 }}>
-              <div
-                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-                onDragLeave={() => setIsDragging(false)}
-                onDrop={handleDrop}
-                onClick={() => document.getElementById("file-input-pro").click()}
-                style={{
-                  border: `2px dashed ${isDragging ? "#3b82f6" : "#334155"}`,
-                  borderRadius: 12,
-                  padding: "52px 24px",
-                  textAlign: "center",
-                  cursor: "pointer",
-                  background: isDragging ? "rgba(59,130,246,0.06)" : "#1e293b",
-                  transition: "all 0.18s",
-                }}
-              >
-                <div style={{ fontSize: 36, marginBottom: 12, opacity: 0.8 }}>
-                  {isDragging ? "📂" : "📁"}
+          )}
+
+          {/* Single file upload */}
+          {importFileMode === "single" && (
+            <>
+              <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", overflow: "hidden" }}>
+                <div style={{ padding: "16px 20px", borderBottom: "1px solid #f1f5f9" }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#1a2744" }}>Zone d'upload</div>
+                  <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>Glissez un fichier ou cliquez pour parcourir</div>
                 </div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0", marginBottom: 6 }}>
-                  {isDragging ? "Relâchez pour charger" : "Déposez votre fichier ici"}
+                <div style={{ padding: 20 }}>
+                  <div
+                    onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                    onDragLeave={() => setIsDragging(false)}
+                    onDrop={(e) => handleDrop(e, null)}
+                    onClick={() => document.getElementById("file-input-single").click()}
+                    style={{
+                      border: `2px dashed ${isDragging ? "#3b82f6" : "#334155"}`,
+                      borderRadius: 12,
+                      padding: "52px 24px",
+                      textAlign: "center",
+                      cursor: "pointer",
+                      background: isDragging ? "rgba(59,130,246,0.06)" : "#1e293b",
+                      transition: "all 0.18s",
+                    }}
+                  >
+                    <div style={{ fontSize: 36, marginBottom: 12, opacity: 0.8 }}>
+                      {isDragging ? "📂" : "📁"}
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0", marginBottom: 6 }}>
+                      {isDragging ? "Relâchez pour charger" : "Déposez votre fichier ici"}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16 }}>
+                      ou cliquez pour parcourir
+                    </div>
+                    <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                      {[".xlsx", ".xls", ".csv"].map(ext => (
+                        <span key={ext} style={{ background: "#334155", color: "#94a3b8", fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 6 }}>{ext}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <input id="file-input-single" type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }}
+                    onChange={(e) => processFile(e.target.files[0])} />
                 </div>
-                <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16 }}>
-                  ou cliquez pour parcourir
+              </div>
+
+              {/* Info panel */}
+              <div style={{ width: 240, display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e2e8f0", padding: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1a2744", marginBottom: 10 }}>Champs reconnus</div>
+                  <div style={{ fontSize: 12, color: "#64748b", marginBottom: 2 }}>{FIELD_MAP.length} champs OPERIX supportés</div>
+                  <div style={{ fontSize: 12, color: "#64748b" }}>Nommage SAP, français et anglais</div>
                 </div>
-                <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-                  {[".xlsx", ".xls", ".csv"].map(ext => (
-                    <span key={ext} style={{ background: "#334155", color: "#94a3b8", fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 6 }}>{ext}</span>
+                <div style={{ background: "#eff6ff", borderRadius: 12, border: "1px solid #bfdbfe", padding: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1e40af", marginBottom: 8 }}>Conseils</div>
+                  <div style={{ fontSize: 11, color: "#3b82f6", lineHeight: 1.6 }}>
+                    · La 1ère ligne doit contenir les en-têtes<br/>
+                    · Le statut sera normalisé automatiquement<br/>
+                    · Les dates doivent être en JJ/MM/AAAA
+                  </div>
+                </div>
+                <button onClick={backToModeSelection}
+                  style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#475569", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
+                  ← Changer de mode
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Combined files upload */}
+          {importFileMode === "multiple" && (
+            <>
+              <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", overflow: "hidden" }}>
+                <div style={{ padding: "16px 20px", borderBottom: "1px solid #f1f5f9" }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#1a2744" }}>Zones d'upload — 3 fichiers</div>
+                  <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>Déposez les fichiers EL, OM et OP pour les combiner</div>
+                </div>
+                <div style={{ padding: 20, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+                  {/* EL file */}
+                  {["el", "om", "op"].map((type) => {
+                    const typeLabel = type.toUpperCase();
+                    const file = multiFiles[type];
+                    const isDrag = draggingZone === type;
+                    return (
+                      <div key={type}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#1a2744", marginBottom: 8 }}>
+                          Fichier {typeLabel}
+                        </div>
+                        {file ? (
+                          <div
+                            style={{
+                              border: "2px solid #bbf7d0",
+                              borderRadius: 12,
+                              padding: 16,
+                              textAlign: "center",
+                              background: "#f0fdf4",
+                              cursor: "pointer",
+                              transition: "all 0.2s",
+                            }}
+                            onClick={() => {
+                              setMultiFiles({ ...multiFiles, [type]: null });
+                            }}
+                            onMouseEnter={e => {
+                              e.currentTarget.style.background = "#dcfce7";
+                            }}
+                            onMouseLeave={e => {
+                              e.currentTarget.style.background = "#f0fdf4";
+                            }}
+                          >
+                            <div style={{ fontSize: 24, marginBottom: 8 }}>✓</div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: "#16a34a", marginBottom: 4, wordBreak: "break-word" }}>
+                              {file.name}
+                            </div>
+                            <div style={{ fontSize: 11, color: "#84cc16" }}>
+                              {(file.size / 1024).toFixed(1)} Ko · Cliquez pour retirer
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            onDragOver={(e) => { e.preventDefault(); setDraggingZone(type); }}
+                            onDragLeave={() => setDraggingZone(null)}
+                            onDrop={(e) => handleDrop(e, type)}
+                            onClick={() => document.getElementById(`file-input-${type}`).click()}
+                            style={{
+                              border: `2px dashed ${isDrag ? "#16a34a" : "#cbd5e1"}`,
+                              borderRadius: 12,
+                              padding: 20,
+                              textAlign: "center",
+                              cursor: "pointer",
+                              background: isDrag ? "rgba(22,163,74,0.06)" : "#fafafa",
+                              transition: "all 0.18s",
+                            }}
+                          >
+                            <div style={{ fontSize: 28, marginBottom: 8, opacity: 0.6 }}>
+                              {isDrag ? "📂" : "📁"}
+                            </div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 4 }}>
+                              {typeLabel}
+                            </div>
+                            <div style={{ fontSize: 11, color: "#94a3b8" }}>Déposer ou cliquer</div>
+                          </div>
+                        )}
+                        <input id={`file-input-${type}`} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }}
+                          onChange={(e) => {
+                            if (e.target.files[0]) {
+                              const newFiles = { ...multiFiles, [type]: e.target.files[0] };
+                              setMultiFiles(newFiles);
+                              if (newFiles.el && newFiles.om && newFiles.op) {
+                                processMultipleFiles(newFiles);
+                              }
+                            }
+                          }} />
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Progress indicator */}
+                <div style={{ padding: "12px 20px", borderTop: "1px solid #f1f5f9", background: "#f8fafc", display: "flex", gap: 8, alignItems: "center" }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "#475569" }}>Fichiers chargés:</span>
+                  {["el", "om", "op"].map(type => (
+                    <span key={type}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                        fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 20,
+                        background: multiFiles[type] ? "#f0fdf4" : "#f1f5f9",
+                        color: multiFiles[type] ? "#16a34a" : "#cbd5e1",
+                      }}>
+                      <span style={{ fontSize: 12 }}>{multiFiles[type] ? "✓" : "○"}</span>
+                      {type.toUpperCase()}
+                    </span>
                   ))}
                 </div>
               </div>
-              <input id="file-input-pro" type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }}
-                onChange={(e) => processFile(e.target.files[0])} />
-            </div>
-          </div>
 
-          {/* Info panel */}
-          <div style={{ width: 240, display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e2e8f0", padding: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#1a2744", marginBottom: 10 }}>Champs reconnus</div>
-              <div style={{ fontSize: 12, color: "#64748b", marginBottom: 2 }}>{FIELD_MAP.length} champs OPERIX supportés</div>
-              <div style={{ fontSize: 12, color: "#64748b" }}>Nommage SAP, français et anglais</div>
-            </div>
-            <div style={{ background: "#eff6ff", borderRadius: 12, border: "1px solid #bfdbfe", padding: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#1e40af", marginBottom: 8 }}>Conseils</div>
-              <div style={{ fontSize: 11, color: "#3b82f6", lineHeight: 1.6 }}>
-                · La 1ère ligne doit contenir les en-têtes<br/>
-                · Le statut sera normalisé automatiquement<br/>
-                · Les dates doivent être en JJ/MM/AAAA
+              {/* Info panel */}
+              <div style={{ width: 240, display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e2e8f0", padding: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1a2744", marginBottom: 10 }}>Combinaison</div>
+                  <div style={{ fontSize: 12, color: "#64748b", marginBottom: 2 }}>Les 3 fichiers seront fusionnés en une seule table</div>
+                  <div style={{ fontSize: 12, color: "#64748b" }}>Les doublons seront détectés</div>
+                </div>
+                <div style={{ background: "#f0fdf4", borderRadius: 12, border: "1px solid #bbf7d0", padding: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#16a34a", marginBottom: 8 }}>Étapes</div>
+                  <div style={{ fontSize: 11, color: "#18751c", lineHeight: 1.6 }}>
+                    1. Chargez les 3 fichiers<br/>
+                    2. Aperçu et validation<br/>
+                    3. Confirmer la fusion
+                  </div>
+                </div>
+                <button onClick={backToModeSelection}
+                  style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#475569", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
+                  ← Changer de mode
+                </button>
               </div>
-            </div>
-          </div>
+            </>
+          )}
         </div>
       )}
 
@@ -516,11 +830,25 @@ export default function PageImports({ onImport, currentData, currentUser }) {
           {/* File info bar */}
           <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e2e8f0", padding: "14px 20px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 28 }}>📊</span>
+              <span style={{ fontSize: 28 }}>{fileInfo.isCombined ? "📦" : "📊"}</span>
               <div style={{ flex: 1, minWidth: 200 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#1a2744" }}>{fileInfo.fileName}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#1a2744" }}>
+                  {fileInfo.isCombined ? "Import combiné — EL + OM + OP" : fileInfo.fileName}
+                </div>
                 <div style={{ fontSize: 12, color: "#64748b" }}>
-                  {fileInfo.rows.length.toLocaleString("fr-FR")} lignes · {fileInfo.excelHeaders.length} colonnes · {fileInfo.fileSize} Ko · Feuille : {fileInfo.sheetName}
+                  {fileInfo.isCombined ? (
+                    <>
+                      {fileInfo.rows.length.toLocaleString("fr-FR")} lignes · Feuille : {fileInfo.sheetName}
+                      <br />
+                      <span style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
+                        EL: {fileInfo.sourceFiles.el} · OM: {fileInfo.sourceFiles.om} · OP: {fileInfo.sourceFiles.op}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      {fileInfo.rows.length.toLocaleString("fr-FR")} lignes · {fileInfo.excelHeaders.length} colonnes · {fileInfo.fileSize} Ko · Feuille : {fileInfo.sheetName}
+                    </>
+                  )}
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -546,9 +874,9 @@ export default function PageImports({ onImport, currentData, currentUser }) {
                     ✓ Données valides
                   </span>
                 )}
-                <button onClick={annuler}
+                <button onClick={backToModeSelection}
                   style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#475569", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
-                  Changer
+                  Retour
                 </button>
                 <button onClick={() => setStep(2)}
                   style={{ padding: "7px 18px", borderRadius: 8, border: "none", background: "#1a2744", color: "#fff", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
@@ -559,11 +887,32 @@ export default function PageImports({ onImport, currentData, currentUser }) {
           </div>
 
           {/* Mapping table */}
-          <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e2e8f0", padding: "20px 24px" }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "#1a2744", marginBottom: 4 }}>Validation du mapping</div>
-            <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16 }}>Correspondance entre les colonnes Excel et les champs OPERIX</div>
-            <MappingTable mapping={fileInfo.mapping} excelHeaders={fileInfo.excelHeaders} />
-          </div>
+          {!fileInfo.isCombined && (
+            <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e2e8f0", padding: "20px 24px" }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#1a2744", marginBottom: 4 }}>Validation du mapping</div>
+              <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16 }}>Correspondance entre les colonnes Excel et les champs OPERIX</div>
+              <MappingTable mapping={fileInfo.mapping} excelHeaders={fileInfo.excelHeaders} />
+            </div>
+          )}
+
+          {/* Combined file info */}
+          {fileInfo.isCombined && (
+            <div style={{ background: "#f0fdf4", borderRadius: 12, border: "1px solid #bbf7d0", padding: "16px 20px" }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#16a34a", marginBottom: 10 }}>Fichiers combinés</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                {[
+                  { name: "EL", file: fileInfo.sourceFiles.el },
+                  { name: "OM", file: fileInfo.sourceFiles.om },
+                  { name: "OP", file: fileInfo.sourceFiles.op },
+                ].map(f => (
+                  <div key={f.name} style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #bbf7d0" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#16a34a", marginBottom: 4 }}>Fichier {f.name}</div>
+                    <div style={{ fontSize: 12, color: "#475569", fontWeight: 500, wordBreak: "break-word" }}>{f.file}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -574,9 +923,12 @@ export default function PageImports({ onImport, currentData, currentUser }) {
           <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e2e8f0", padding: "14px 20px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", marginBottom: fileInfo.dupeInfo.dupes.length > 0 ? 12 : 0 }}>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#1a2744" }}>{fileInfo.fileName}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#1a2744" }}>
+                  {fileInfo.isCombined ? "Import combiné — EL + OM + OP" : fileInfo.fileName}
+                </div>
                 <div style={{ fontSize: 12, color: "#64748b" }}>
-                  {fileInfo.rows.length.toLocaleString("fr-FR")} lignes · {matchedCount} champs mappés · Score {score}%
+                  {fileInfo.rows.length.toLocaleString("fr-FR")} lignes
+                  {!fileInfo.isCombined && <> · {matchedCount} champs mappés · Score {score}%</>}
                   {fileInfo.validation.errorCount > 0 && <span style={{ color: "#dc2626", marginLeft: 8 }}>· {fileInfo.validation.errorCount} erreur(s) de données</span>}
                 </div>
               </div>
@@ -597,7 +949,7 @@ export default function PageImports({ onImport, currentData, currentUser }) {
                 </div>
                 <button onClick={() => setStep(1)}
                   style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#475569", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
-                  ← Mapping
+                  ← Validation
                 </button>
                 <button onClick={annuler}
                   style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#475569", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
@@ -630,19 +982,21 @@ export default function PageImports({ onImport, currentData, currentUser }) {
             )}
 
             {/* Guaranteed fields notice */}
-            <div style={{ marginTop: fileInfo.dupeInfo.dupes.length > 0 ? 8 : 0, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-              <span style={{ fontSize: 11, color: "#94a3b8" }}>Champs garantis :</span>
-              {GUARANTEED_FIELDS.map(f => (
-                <span key={f} style={{
-                  fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 10,
-                  background: fileInfo.mapping[f] ? "#f0fdf4" : "#f1f5f9",
-                  color: fileInfo.mapping[f] ? "#16a34a" : "#94a3b8",
-                  border: `1px solid ${fileInfo.mapping[f] ? "#bbf7d0" : "#e2e8f0"}`,
-                }}>
-                  {fileInfo.mapping[f] ? "✓" : "+"} {f}
-                </span>
-              ))}
-            </div>
+            {!fileInfo.isCombined && (
+              <div style={{ marginTop: fileInfo.dupeInfo.dupes.length > 0 ? 8 : 0, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                <span style={{ fontSize: 11, color: "#94a3b8" }}>Champs garantis :</span>
+                {GUARANTEED_FIELDS.map(f => (
+                  <span key={f} style={{
+                    fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 10,
+                    background: fileInfo.mapping[f] ? "#f0fdf4" : "#f1f5f9",
+                    color: fileInfo.mapping[f] ? "#16a34a" : "#94a3b8",
+                    border: `1px solid ${fileInfo.mapping[f] ? "#bbf7d0" : "#e2e8f0"}`,
+                  }}>
+                    {fileInfo.mapping[f] ? "✓" : "+"} {f}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Preview table */}
@@ -670,10 +1024,13 @@ export default function PageImports({ onImport, currentData, currentUser }) {
                 <thead>
                   <tr style={{ background: "#f8fafc" }}>
                     <th style={{ padding: "10px 12px", textAlign: "center", fontWeight: 600, color: "#94a3b8", borderBottom: "1px solid #e2e8f0", width: 40 }}>#</th>
+                    {fileInfo.isCombined && (
+                      <th style={{ padding: "10px 12px", textAlign: "center", fontWeight: 600, color: "#94a3b8", borderBottom: "1px solid #e2e8f0", width: 50 }}>Source</th>
+                    )}
                     {PREVIEW_COLS.map(c => (
                       <th key={c.key} style={{ padding: "10px 12px", textAlign: "left", fontWeight: 600, color: "#475569", borderBottom: "1px solid #e2e8f0", whiteSpace: "nowrap" }}>
                         {c.label}
-                        {!fileInfo.mapping[c.key] && (
+                        {!fileInfo.mapping[c.key] && !fileInfo.isCombined && (
                           <span style={{ marginLeft: 4, fontSize: 10, color: "#f59e0b" }} title="Champ non détecté">⚠</span>
                         )}
                       </th>
@@ -698,12 +1055,17 @@ export default function PageImports({ onImport, currentData, currentUser }) {
                               : <span style={{ color: "#cbd5e1" }}>{realIdx + 1}</span>
                           }
                         </td>
+                        {fileInfo.isCombined && (
+                          <td style={{ padding: "8px 12px", textAlign: "center", fontSize: 11, fontWeight: 700, color: "#475569" }}>
+                            {row.fileSource}
+                          </td>
+                        )}
                         {PREVIEW_COLS.map(c => {
                           const hasIssue = rowIssues.some(i => i.field === c.key);
                           return (
-                            <td key={c.key} style={{ padding: "8px 12px", color: hasIssue ? "#dc2626" : c.key === "statut" ? (STATUT_COLORS[row[c.key]] || "#64748b") : "#334155", fontWeight: c.key === "statut" ? 600 : 400, whiteSpace: "nowrap", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }}>
+                            <td key={c.key} style={{ padding: "8px 12px", color: hasIssue ? "#dc2626" : c.key === "statut" ? (getStatusColor(row[c.key]).color) : "#334155", fontWeight: c.key === "statut" ? 600 : 400, whiteSpace: "nowrap", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }}>
                               {c.key === "statut" && row[c.key] ? (
-                                <span style={{ background: (STATUT_COLORS[row[c.key]] || "#94a3b8") + "18", color: STATUT_COLORS[row[c.key]] || "#64748b", padding: "2px 8px", borderRadius: 20, fontSize: 11, fontWeight: 700 }}>
+                                <span style={{ background: (getStatusColor(row[c.key]).color) + "18", color: getStatusColor(row[c.key]).color, padding: "2px 8px", borderRadius: 20, fontSize: 11, fontWeight: 700 }}>
                                   {String(row[c.key])}
                                 </span>
                               ) : hasIssue ? (
@@ -720,6 +1082,92 @@ export default function PageImports({ onImport, currentData, currentUser }) {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Status Color Mapping Report ─── */}
+      {statusMappingReport && statusMappingReport.length > 0 && (
+        <div style={{ background: "#f0fdf4", borderRadius: 14, border: "2px solid #86efac", marginBottom: 28, overflow: "hidden" }}>
+          {/* Header */}
+          <div style={{ padding: "16px 20px", borderBottom: "1px solid #86efac", background: "#dcfce7" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: 18 }}>✓</span>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#16a34a" }}>Palette de Couleurs Mise à Jour</div>
+            </div>
+            <div style={{ fontSize: 12, color: "#15803d", marginLeft: 28 }}>
+              Vérifiez l'attribution des couleurs aux statuts détectés
+            </div>
+          </div>
+          
+          {/* Status mapping table */}
+          <div style={{ padding: 20, overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: "2px solid #bbf7d0" }}>
+                  <th style={{ textAlign: "left", padding: "10px 12px", fontWeight: 700, color: "#16a34a", paddingBottom: 12 }}>Statut</th>
+                  <th style={{ textAlign: "left", padding: "10px 12px", fontWeight: 700, color: "#16a34a", paddingBottom: 12 }}>État</th>
+                  <th style={{ textAlign: "left", padding: "10px 12px", fontWeight: 700, color: "#16a34a", paddingBottom: 12 }}>Action</th>
+                  <th style={{ textAlign: "left", padding: "10px 12px", fontWeight: 700, color: "#16a34a", paddingBottom: 12 }}>Couleur</th>
+                </tr>
+              </thead>
+              <tbody>
+                {statusMappingReport.map((item, idx) => (
+                  <tr key={idx} style={{ borderBottom: "1px solid #dcfce7", background: item.isNew ? "#f0fdf4" : "transparent" }}>
+                    <td style={{ padding: "10px 12px", fontWeight: 600, color: "#1a2744" }}>{item.statut}</td>
+                    <td style={{ padding: "10px 12px", color: "#64748b" }}>
+                      <span style={{
+                        display: "inline-block",
+                        px: "8px",
+                        py: "2px",
+                        background: item.isNew ? "#fcd34d" : "#e0e7ff",
+                        color: item.isNew ? "#92400e" : "#3730a3",
+                        borderRadius: 4,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: "2px 8px"
+                      }}>
+                        {item.state}
+                      </span>
+                    </td>
+                    <td style={{ padding: "10px 12px", color: "#64748b", fontSize: 12 }}>
+                      <span style={{
+                        display: "inline-block",
+                        background: item.isNew ? "#dcfce7" : "#f1f5f9",
+                        color: item.isNew ? "#15803d" : "#475569",
+                        borderRadius: 4,
+                        padding: "2px 8px",
+                        fontSize: 11,
+                        fontWeight: 600
+                      }}>
+                        {item.action}
+                      </span>
+                    </td>
+                    <td style={{ padding: "10px 12px" }}>
+                      <div style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 8,
+                        background: item.color + "18",
+                        border: `2px solid ${item.color}`,
+                        borderRadius: 6,
+                        padding: "6px 12px"
+                      }}>
+                        <div style={{ width: 12, height: 12, background: item.color, borderRadius: 2 }}></div>
+                        <span style={{ fontSize: 12, fontFamily: "monospace", fontWeight: 600, color: item.color }}>
+                          {item.color}
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          
+          {/* Footer with summary */}
+          <div style={{ padding: "12px 20px", background: "#dcfce7", borderTop: "1px solid #86efac", fontSize: 12, color: "#15803d", fontWeight: 600 }}>
+            {statusMappingReport.filter(r => !r.isNew).length} statut(s) conservé(s) · {statusMappingReport.filter(r => r.isNew).length} nouveau(x) généré(s)
           </div>
         </div>
       )}
@@ -807,10 +1255,10 @@ export default function PageImports({ onImport, currentData, currentUser }) {
                         <span style={{
                           display: "inline-block", fontWeight: 700, fontSize: 10,
                           padding: "3px 8px", borderRadius: 6,
-                          background: item.fileType === "XLSX" ? "#eff6ff" : item.fileType === "CSV" ? "#f0fdf4" : "#fff7ed",
-                          color: item.fileType === "XLSX" ? "#1e40af" : item.fileType === "CSV" ? "#15803d" : "#c2410c",
+                          background: item.fileType === "XLSX" ? "#eff6ff" : item.fileType === "CSV" ? "#f0fdf4" : item.fileType === "COMBINED" ? "#f0fdf4" : "#fff7ed",
+                          color: item.fileType === "XLSX" ? "#1e40af" : item.fileType === "CSV" ? "#15803d" : item.fileType === "COMBINED" ? "#16a34a" : "#c2410c",
                         }}>
-                          {item.fileType}
+                          {item.fileType === "COMBINED" ? "📦 COMBINED" : item.fileType}
                         </span>
                       </td>
 
@@ -819,6 +1267,14 @@ export default function PageImports({ onImport, currentData, currentUser }) {
                         <div style={{ fontWeight: 600, color: "#1a2744", fontSize: 12 }}>{item.fileName}</div>
                         <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>
                           {item.lignes.toLocaleString("fr-FR")} lignes · {item.colonnes} champs · score {item.score}%
+                          {item.isCombined && item.sourceFiles && (
+                            <>
+                              <br />
+                              <span style={{ fontSize: 9, color: "#cbd5e1" }}>
+                                EL: {item.sourceFiles.el} | OM: {item.sourceFiles.om} | OP: {item.sourceFiles.op}
+                              </span>
+                            </>
+                          )}
                         </div>
                       </td>
 

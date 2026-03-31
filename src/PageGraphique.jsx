@@ -21,24 +21,36 @@ const STATUTS = [
   "Archivé"
 ];
 
-const WEEKLY_DATA = {
-  "Reçu":           [12, 15, 14, 18, 16, 20],
-  "Point dur":      [2, 1, 3, 2, 1, 2],
-  "Manquants Plus": [3, 4, 2, 3, 4, 1],
-  "Manquant":       [5, 3, 4, 6, 5, 4],
-  "En cours":       [8, 10, 12, 9, 11, 14],
-  "À venir":        [15, 12, 10, 14, 16, 12],
-  "Faux manquant":  [1, 2, 0, 1, 1, 0],
-  "Retard":         [4, 5, 6, 3, 4, 5],
-  "Confirmé":       [6, 7, 5, 8, 7, 9],
-  "Archivé":        [0, 1, 2, 1, 3, 2],
-};
+// WEEKLY_DATA removed - component now uses real data passed as props
+// When no data available from imports, component will show empty state
 
-export default function PageGraphique() {
+export default function PageGraphique({ data = [] }) {
   const [selectedPeriod, setSelectedPeriod] = useState("Par semaine");
   const [visibleStatuts, setVisibleStatuts] = useState(STATUTS);
   const [showFilters, setShowFilters] = useState(false);
   const periods = ["Par semaine", "Par 15 jours", "Par mois"];
+
+  // Build weekly data from real imported data
+  const buildWeeklyData = () => {
+    const weekData = {};
+    STATUTS.forEach(st => { weekData[st] = [0,0,0,0,0,0]; });
+    
+    data.forEach(row => {
+      const date = row.dateEcheance || row.dateTransfertPegase;
+      if (!date) return;
+      const d = date.includes('-') ? new Date(date) : new Date(date.split('/').reverse().join('-'));
+      const ms = d.getTime();
+      // Calc week 0-5 based on day of month
+      const dayOfMonth = d.getDate();
+      const weekIdx = Math.floor((dayOfMonth - 1) / 7);
+      if (weekIdx >= 0 && weekIdx < 6 && row.statut && STATUTS.includes(row.statut)) {
+        weekData[row.statut][weekIdx]++;
+      }
+    });
+    return weekData;
+  };
+
+  const WEEKLY_DATA = buildWeeklyData();
 
   const toggleStatut = (st) => {
     if (visibleStatuts.includes(st)) {
@@ -51,7 +63,7 @@ export default function PageGraphique() {
   const chartH = 280;
 
   // Calcul du total des statuts visibles pour générer la courbe rose et le Maximum de l'axe Y
-  const curvePointsData = WEEKS.map((_, i) => visibleStatuts.reduce((s, st) => s + WEEKLY_DATA[st][i], 0));
+  const curvePointsData = WEEKS.map((_, i) => visibleStatuts.reduce((s, st) => s + (WEEKLY_DATA[st]?.[i] || 0), 0));
   const maxVal = Math.max(...curvePointsData, 10) * 1.15; // 15% marge au dessus
 
   // Génération du SVG Path pour la courbe rose lissée (Bezier)
@@ -72,6 +84,14 @@ export default function PageGraphique() {
 
   return (
     <div style={{ display: "flex", width: "100%", overflow: "hidden" }}>
+      {data.length === 0 ? (
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 400, flexDirection: "column", color: "#94a3b8" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>📭</div>
+          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Aucune donnée</div>
+          <div style={{ fontSize: 13 }}>Importez vos fichiers pour visualiser le graphique de suivi</div>
+        </div>
+      ) : (
+      <>
       <div style={{ flex: 1, padding: 24, minWidth: 0, transition: "width 0.25s ease", width: showFilters ? "calc(100% - 260px)" : "100%" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1a2744", margin: 0 }}>📈 Graphique de suivi par statut</h2>
@@ -215,11 +235,11 @@ export default function PageGraphique() {
               </td>
               {WEEKS.map((w, wi) => (
                 <td key={w} style={{ padding: "10px", textAlign: "center", fontSize: 14, fontWeight: 800, color: "#be185d" }}>
-                  {STATUTS.reduce((s, st) => s + WEEKLY_DATA[st][wi], 0)}
+                  {STATUTS.reduce((s, st) => s + (WEEKLY_DATA[st]?.[wi] || 0), 0)}
                 </td>
               ))}
               <td style={{ padding: "12px 16px", textAlign: "center", fontSize: 16, fontWeight: 900, color: "#9d174d", background: "#fce7f3" }}>
-                {STATUTS.reduce((sum, st) => sum + WEEKLY_DATA[st].reduce((a, b) => a + b, 0), 0)}
+                {STATUTS.reduce((sum, st) => sum + (WEEKLY_DATA[st]?.reduce((a, b) => a + b, 0) || 0), 0)}
               </td>
             </tr>
           </tbody>
@@ -286,6 +306,8 @@ export default function PageGraphique() {
           </div>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }
