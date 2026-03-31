@@ -3,34 +3,83 @@ import * as XLSX from "xlsx";
 import { detectNewStatuses as _, generateStatusMappingReport, getStatusColor } from "./statusColorManager";
 
 /* ─── Field mapping configuration ──────────────────────────────────── */
+/* Aliases list starts with the EXACT Excel column name from the real file */
 const FIELD_MAP = [
-  { key: "id",                    label: "Identifiant",           aliases: ["ID","Référence","Reference","REF"] },
-  { key: "nomProjet",             label: "Projet",                aliases: ["Projet","Project","NOM PROJET","Nom Projet"] },
-  { key: "sousProjet",            label: "Sous-projet",           aliases: ["Sous-projet","Sous Projet","SousProjet","SOUS PROJET"] },
-  { key: "article",               label: "Article",               aliases: ["Article","Référence Article","ARTICLE","Ref Article"] },
-  { key: "designation",           label: "Désignation",           aliases: ["Désignation","Designation","DESIGNATION","Libellé"] },
-  { key: "nomFournisseur",        label: "Fournisseur",           aliases: ["Fournisseur","NOM FOURNISSEUR","Nom Fournisseur","Supplier"] },
-  { key: "codeFournisseur",       label: "Code fournisseur",      aliases: ["Code Fournisseur","CODE FOURN","Code Fourn","FOURNISSEUR CODE"] },
-  { key: "utilisateurPSA",        label: "Utilisateur PSA",       aliases: ["Utilisateur PSA","Utilisateur","USER","UTILISATEUR"] },
-  { key: "magasin",               label: "Magasin",               aliases: ["Magasin","MAGASIN","Warehouse","Entrepôt"] },
-  { key: "site",                  label: "Site",                  aliases: ["Site","SITE","Usine","Plant"] },
-  { key: "statut",                label: "Statut",                aliases: ["Statut","STATUT","Status","État"] },
-  { key: "quantiteEcheancee",     label: "Quantité échéancée",    aliases: ["Quantité","Quantite","QTE","Qte","QUANTITE","Qté échéancée","Qty"] },
-  { key: "quantiteLivree",        label: "Quantité livrée",       aliases: ["Quantité livrée","Qte livrée","QTE LIV","Qty Delivered"] },
-  { key: "dateEcheance",          label: "Date échéance",         aliases: ["Date Echéance","Date Echeance","DATE ECH","Date Ech","Echéance","Due Date"] },
-  { key: "dateLivraisonConfirmee",label: "Date livraison",        aliases: ["Date Livraison","Date Confirmée","DATE LIV","Conf. Date","Delivery Date"] },
-  { key: "dateEnvoiCommande",     label: "Date envoi commande",   aliases: ["Date Envoi","Date Commande","DATE CMD","Order Date"] },
-  { key: "dernierCommentaire",    label: "Commentaire",           aliases: ["Commentaire","COMMENTAIRE","Comment","Remarque"] },
-  { key: "dernierPPLRLOG",        label: "PPL/RLOG",              aliases: ["PPL/RLOG","PPL","RLOG","PPL RLOG"] },
-  { key: "domaine",               label: "Domaine",               aliases: ["Domaine","DOMAINE","Domain","Famille"] },
-  { key: "serie",                 label: "Série",                 aliases: ["Série","Serie","SERIE","Series"] },
-  { key: "psaId",                 label: "PSA ID",                aliases: ["PSA ID","PSA","PSAID","Id PSA"] },
-  { key: "ru",                    label: "RU",                    aliases: ["RU","Ru","Unite Ressource"] },
-  { key: "affaire",               label: "Affaire",               aliases: ["Affaire","AFFAIRE","N° Affaire"] },
+  // ── Identifiants ──
+  { key: "id",                     label: "Identifiant",                       aliases: ["ID","Référence","Reference","REF","id"] },
+  { key: "psaId",                  label: "PSA ID",                            aliases: ["PSA ID","PSA","PSAID","Id PSA"] },
+  { key: "article",                label: "Article",                           aliases: ["Article","Référence Article","ARTICLE","Ref Article"] },
+  { key: "article10",              label: "Article10",                         aliases: ["Article10","ARTICLE10","Article 10","Art10"] },
+  { key: "affaire",                label: "Affaire",                           aliases: ["Affaire","AFFAIRE","N° Affaire"] },
+  { key: "ru",                     label: "RU",                                aliases: ["RU","Ru","Unite Ressource"] },
+  { key: "documentAchat",          label: "Doc achat",                         aliases: ["Doc achat","Document Achat","DOC ACHAT","DA","Doc. Achat"] },
+
+  // ── Projet / Organisation ──
+  { key: "nomProjet",              label: "Nom du Projet",                     aliases: ["Nom du Projet","Projet","Project","NOM PROJET","Nom Projet"] },
+  { key: "sousProjet",             label: "Sous projet",                       aliases: ["Sous projet","Sous-projet","Sous Projet","SousProjet","SOUS PROJET"] },
+  { key: "utilisateurPSA",         label: "Utilisateur PSA",                   aliases: ["Utilisateur PSA","Utilisateur","USER","UTILISATEUR"] },
+  { key: "site",                   label: "Site",                              aliases: ["Site","SITE","Usine","Plant"] },
+  { key: "domaine",                label: "Domaine",                           aliases: ["Domaine","DOMAINE","Domain","Famille"] },
+  { key: "serie",                  label: "Série",                             aliases: ["Série","Serie","SERIE","Series"] },
+
+  // ── Fournisseur ──
+  { key: "nomFournisseur",         label: "Nom fournisseur",                   aliases: ["Nom fournisseur","Fournisseur","NOM FOURNISSEUR","Nom Fournisseur","Supplier"] },
+  { key: "codeFournisseur",        label: "Fourn",                             aliases: ["Fourn","Code Fournisseur","CODE FOURN","Code Fourn","FOURNISSEUR CODE","Fournisseur Code"] },
+
+  // ── Magasin ──
+  { key: "magasin",                label: "Mag",                               aliases: ["Mag","Magasin","MAGASIN","Warehouse","Entrepôt"] },
+
+  // ── Désignation ──
+  { key: "designation",            label: "Désignation",                       aliases: ["Désignation","Designation","DESIGNATION","Libellé"] },
+
+  // ── Statut & Indicateurs ──
+  { key: "statut",                 label: "Statut",                            aliases: ["Statut","STATUT","Status","État"] },
+  { key: "typeImport",             label: "Type d'import",                     aliases: ["Type d'import","Type Import","TYPE IMPORT","Type d'Import"] },
+  { key: "fauxManquant",           label: "Faux manquant",                     aliases: ["Faux manquant","Faux Manquant","FAUX MANQUANT"] },
+  { key: "livraisonPointDur",      label: "Livr Pt Dur",                       aliases: ["Livr Pt Dur","Livraison Point Dur","LIVR PT DUR","Livraison Pt Dur"] },
+  { key: "expire",                 label: "Expiré",                            aliases: ["Expiré","Expire","EXPIRE"] },
+  { key: "archive",                label: "Archivé",                           aliases: ["Archivé","Archive","ARCHIVE"] },
+  { key: "vsPf",                   label: "VS/P/F?",                           aliases: ["VS/P/F?","VS/P/F","VSPF","vs_p_f"] },
+  { key: "etape",                  label: "Étape",                             aliases: ["Étape","Etape","ETAPE","Étapes"] },
+  { key: "indicateur",             label: "Indicateur",                        aliases: ["Indicateur","INDICATEUR","Indicator"] },
+  { key: "motCle",                 label: "Mot clé",                           aliases: ["Mot clé","Mot Clé","MOT CLE","motCle","Mots clés","Mot-clé"] },
+
+  // ── Quantités ──
+  { key: "quantiteEcheancee",      label: "Qté échéancée",                     aliases: ["Qté échéancée","Quantité","Quantite","QTE","Qte","QUANTITE","Qty","Qté Echéancée"] },
+  { key: "quantiteLivree",         label: "Qté livrée",                        aliases: ["Qté livrée","Quantité livrée","Qte livrée","QTE LIV","Qty Delivered","Qté Livrée"] },
+  { key: "evolutionQteReception",  label: "Evolution de quantité après réception", aliases: ["Evolution de quantité après réception","Evolution Qte","Evol Qté","Evolution quantité"] },
+  { key: "multilignesTotale",      label: "Multilignes Totale",                aliases: ["Multilignes Totale","Multilignes Total","Multi Total","Multilignes totale"] },
+  { key: "multilignesRecu",        label: "Multilignes reçu",                  aliases: ["Multilignes reçu","Multilignes Reçu","Multi Reçu","Multilignes recu"] },
+
+  // ── Dates ──
+  { key: "dateEcheance",           label: "Date d'échéance",                   aliases: ["Date d'échéance","Date Echéance","Date Echeance","DATE ECH","Date Ech","Echéance","Due Date","Date échéance"] },
+  { key: "dateEchLundi",           label: "Date Ech Lundi",                    aliases: ["Date Ech Lundi","Date Echéance Lundi","Date ech lundi","Date Éch Lundi"] },
+  { key: "dateLivraisonConfirmee", label: "Date de livraison confirmée",        aliases: ["Date de livraison confirmée","Date Livraison","Date Confirmée","DATE LIV","Conf. Date","Delivery Date","Date livraison confirmée"] },
+  { key: "confirmeDate",           label: "Confirmé date de livraison",         aliases: ["Confirmé date de livraison","Confirmé Date","Confirm Date","Date Confirmée Livraison"] },
+  { key: "dateEnvoiCommande",      label: "Date d'envoi de commande",           aliases: ["Date d'envoi de commande","Date Envoi","Date Commande","DATE CMD","Order Date","Date envoi commande"] },
+  { key: "dateTransfertPegase",    label: "Date de transfert Pegase",           aliases: ["Date de transfert Pegase","Date Transfert Pegase","DATE PEGASE","Date Pégase","Date transfert Pégase"] },
+  { key: "dateAjout",              label: "Date d'ajout",                       aliases: ["Date d'ajout","Date Ajout","DATE AJOUT","Date d'Ajout"] },
+  { key: "dateArchivage",          label: "Date d'archivage",                   aliases: ["Date d'archivage","Date Archivage","DATE ARCHIVAGE"] },
+
+  // ── Pastillage ──
+  { key: "pastillage",             label: "Pastillage",                        aliases: ["Pastillage","PASTILLAGE"] },
+  { key: "numeroPastillage",       label: "N° pastillage",                     aliases: ["N° pastillage","N° Pastillage","Numero Pastillage","No Pastillage","N°Pastillage"] },
+  { key: "promesseLivraisonPilote",label: "Promesse livraison pilote pastillage", aliases: ["Promesse livraison pilote pastillage","Promesse Livraison","Promesse livraison pilote"] },
+
+  // ── Commentaires ──
+  { key: "dernierCommentaire",     label: "Dernier commentaire",               aliases: ["Dernier commentaire","Dernier Commentaire","DERNIER COMMENTAIRE","Last Comment"] },
+  { key: "commentaire",            label: "Commentaire",                       aliases: ["Commentaire","COMMENTAIRE","Comment","Remarque"] },
+  { key: "dernierPPLRLOG",         label: "Dernier PPL RLOG",                  aliases: ["Dernier PPL RLOG","PPL/RLOG","PPL","RLOG","PPL RLOG","Dernier PPL/RLOG"] },
 ];
 
 /* ─── Guaranteed fields (added if absent from Excel) ───────────────── */
-const GUARANTEED_FIELDS = ["quantiteLivree","dateLivraisonConfirmee","dateEnvoiCommande","psaId","ru","affaire"];
+const GUARANTEED_FIELDS = [
+  "quantiteLivree","dateLivraisonConfirmee","dateEnvoiCommande","psaId","ru","affaire",
+  "dateEchLundi","confirmeDate","dateAjout","dateArchivage","dateTransfertPegase",
+  "fauxManquant","livraisonPointDur","pastillage","numeroPastillage",
+  "promesseLivraisonPilote","evolutionQteReception","multilignesTotale",
+  "multilignesRecu","etape","archive","expire","vsPf","commentaire",
+];
 
 /* ─── Validation ───────────────────────────────────────────────────── */
 const DATE_RE = /^(\d{2}\/\d{2}\/\d{4}(?:\s+\d{2}:\d{2}(?::\d{2})?)?|\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?)$/;
@@ -108,7 +157,10 @@ const normalizeDate = (val) => {
   return s;
 };
 
-const DATE_FIELDS = ["dateEcheance","dateLivraisonConfirmee","dateEnvoiCommande","dateTransfertPegase","confirmeDate"];
+const DATE_FIELDS = [
+  "dateEcheance","dateLivraisonConfirmee","dateEnvoiCommande",
+  "dateTransfertPegase","confirmeDate","dateEchLundi","dateAjout","dateArchivage",
+];
 
 const mapRow = (row, mapping, index) => {
   const mapped = {};
@@ -118,17 +170,22 @@ const mapRow = (row, mapping, index) => {
   });
   // Normalize date fields
   DATE_FIELDS.forEach(f => { mapped[f] = normalizeDate(mapped[f]); });
-  // Defaults & normalization
-  if (!mapped.id) mapped.id = `IMP-${String(index + 1).padStart(3, "0")}`;
-  if (!mapped.statut) mapped.statut = "En cours";
-  mapped.quantiteEcheancee = parseInt(mapped.quantiteEcheancee) || 0;
-  mapped.quantiteLivree    = parseInt(mapped.quantiteLivree)    || 0;
-  mapped.typeImport = "Excel";
-  // Guarantee all required fields (add as empty if missing)
-  ["psaId","documentAchat","serie","ru","affaire","reference","article10",
-   "dateTransfertPegase","dateEnvoiCommande","motCle","indicateur",
-   "fauxManquant","livraisonPointDur","confirmeDate",
-   ...GUARANTEED_FIELDS].forEach(k => {
+  // Normalize numeric fields
+  mapped.quantiteEcheancee     = parseInt(mapped.quantiteEcheancee)     || 0;
+  mapped.quantiteLivree        = parseInt(mapped.quantiteLivree)        || 0;
+  mapped.multilignesTotale     = parseInt(mapped.multilignesTotale)     || 0;
+  mapped.multilignesRecu       = parseInt(mapped.multilignesRecu)       || 0;
+  mapped.evolutionQteReception = parseInt(mapped.evolutionQteReception) || 0;
+  // Defaults
+  if (!mapped.id)         mapped.id         = `IMP-${String(index + 1).padStart(3, "0")}`;
+  if (!mapped.statut)     mapped.statut     = "En cours";
+  if (!mapped.typeImport) mapped.typeImport = "Excel";
+  // Guarantee all fields present
+  GUARANTEED_FIELDS.forEach(k => {
+    if (mapped[k] === undefined || mapped[k] === null) mapped[k] = "";
+  });
+  // Structural fields not in FIELD_MAP
+  ["serie","reference","motCle","indicateur"].forEach(k => {
     if (mapped[k] === undefined || mapped[k] === null) mapped[k] = "";
   });
   return mapped;
