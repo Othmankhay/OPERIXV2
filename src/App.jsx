@@ -6,6 +6,8 @@ import PageGraphique from "./PageGraphique";
 import PageJournal from "./PageJournal";
 import PageImports from "./PageImports";
 import FicheFournisseur from "./FicheFournisseur";
+import SupplierCard from "./SupplierCard";
+import SupplierSidebar from "./SupplierSidebar";
 import PageOTD from "./PageOTD";
 import PageRFT from "./PageRFT";
 import SplashScreen from "./SplashScreen";
@@ -443,21 +445,26 @@ function PageDashboard({ data, previousData, importDiff, cumulativeStats, onFilt
             <div style={{ background: "#16a34a", height: "100%", width: `${sTotal ? (sConf/sTotal)*100 : 0}%` }} />
           </div>
         </div>
-        {/* Fournisseurs à risque */}
+        {/* Fournisseurs à risque (vue carte moderne) */}
         <div style={{ background: "#fff", borderRadius: 12, padding: 16, border: "1px solid #e2e8f0" }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#1a2744", marginBottom: 10 }}>🏭 Fournisseurs à risque</div>
-          {topRiskSuppliers.length === 0 ? <div style={{ fontSize: 12, color: "#94a3b8" }}>Aucun risque détecté</div> : 
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {topRiskSuppliers.map(f => (
-                <div key={f.name} onClick={() => onSetFournisseur(f.name)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", padding: "4px 8px", borderRadius: 6, transition: "background 0.15s" }}
-                onMouseEnter={e => e.currentTarget.style.background = "#f8fafc"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: "#1a2744", flex: 1 }}>{f.ic} {f.name}</span>
-                  <span style={{ fontSize: 11, background: "#fef2f2", color: "#dc2626", padding: "2px 6px", borderRadius: 10, fontWeight: 700, marginRight: 8 }}>{f.riskCount} pc</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: f.col, width: 40, textAlign: "right" }}>{f.otd}%</span>
-                </div>
-              ))}
+          {topRiskSuppliers.length === 0 ? (
+            <div style={{ fontSize: 12, color: "#94a3b8" }}>Aucun risque détecté</div>
+          ) : (
+            <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+              {topRiskSuppliers.map(f => {
+                // On recherche le premier objet fournisseur réel correspondant au nom
+                const supplierObj = filteredData.find(d => d.nomFournisseur === f.name) || { nomFournisseur: f.name, psaId: "", quantiteEcheancee: "-", quantiteLivree: "-", dateEcheance: "-" };
+                return (
+                  <SupplierCard
+                    key={f.name}
+                    supplier={supplierObj}
+                    onClick={() => onSetFournisseur(f.name)}
+                  />
+                );
+              })}
             </div>
-          }
+          )}
         </div>
       </div>
 
@@ -991,7 +998,7 @@ function ProcureApp({ currentUser }) {
   const [importedData, setImportedData] = useState(null);
   const [previousData, setPreviousData] = useState(null);
   const [importDiff, setImportDiff] = useState(null);
-  const [cumulativeStats, setCumulativeStats] = useState({ totalCommandes: 0, recues: 0, enRetard: 0, imports: 0 });
+  const [showSupplierSidebar, setShowSupplierSidebar] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [colorLines, setColorLines] = useState(false);
   const [showFournisseurs, setShowFournisseurs] = useState(false);
@@ -1288,6 +1295,11 @@ function ProcureApp({ currentUser }) {
   const fournisseursList = [...new Set(tableData.map(d => d.nomFournisseur))];
   const fournisseurCounts = {};
   fournisseursList.forEach(f => { fournisseurCounts[f] = tableData.filter(d => d.nomFournisseur === f).length; });
+
+  // Unique suppliers for sidebar
+  const uniqueSuppliers = fournisseursList.map(f => {
+    return tableData.find(d => d.nomFournisseur === f) || { nomFournisseur: f, psaId: "", quantiteEcheancee: "-", quantiteLivree: "-", dateEcheance: "-" };
+  });
 
   // Counts
   const statusCounts = {};
@@ -2001,6 +2013,9 @@ function ProcureApp({ currentUser }) {
                   </span>
                   Couleur ligne
                 </button>
+                <button onClick={() => setShowSupplierSidebar(true)} style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", cursor: "pointer", fontWeight: 500, fontSize: 13, color: "#475569", display: "flex", alignItems: "center", gap: 6 }}>
+                  🏭 Fournisseurs
+                </button>
               </div>
 
               {/* Column panel */}
@@ -2215,6 +2230,14 @@ function ProcureApp({ currentUser }) {
           )}
         </div>
       </div>
+
+      {/* Supplier Sidebar */}
+      <SupplierSidebar
+        suppliers={uniqueSuppliers}
+        open={showSupplierSidebar}
+        onClose={() => setShowSupplierSidebar(false)}
+        onSelect={(f) => { setSelectedFournisseur(f); navigateWithHistory("table", ""); setCurrentPage(1); setShowSupplierSidebar(false); }}
+      />
 
       {/* Fiche Fournisseur Modal */}
       {ficheFournisseur && (
