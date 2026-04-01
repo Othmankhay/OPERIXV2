@@ -1016,6 +1016,7 @@ function ProcureApp({ currentUser }) {
   const [selectedSousProjet, setSelectedSousProjet] = useState("");
   const [selectedProjectFamily, setSelectedProjectFamily] = useState("");
   const [selectedOtherProject, setSelectedOtherProject] = useState("");
+  const [projectFadeAlt, setProjectFadeAlt] = useState(false);
   const [openDropdown, setOpenDropdown] = useState("");
   const [selectedStatut, setSelectedStatut] = useState("");
   const [selectedRows, setSelectedRows] = useState([]);
@@ -1038,7 +1039,6 @@ function ProcureApp({ currentUser }) {
   const [importDiff, setImportDiff] = useState(null);
   const [showSupplierSidebar, setShowSupplierSidebar] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const compactProjectNav = useCompactNav(900);
   const [colorLines, setColorLines] = useState(false);
   const [showFournisseurs, setShowFournisseurs] = useState(false);
   const [selectedFournisseur, setSelectedFournisseur] = useState("");
@@ -1078,6 +1078,29 @@ function ProcureApp({ currentUser }) {
   const tableData = importedData || [];
 
   const projectNavModel = useProjectNavModel(tableData);
+  const compactProjectNav = useCompactNav(900);
+  const { isRelanceEligible, openRelanceEmail } = useRelanceEmail();
+
+  const applyProjectScope = useCallback((rows) => {
+    if (!rows || rows.length === 0) return [];
+    return rows.filter((d) => {
+      const family = getProjectFamily(d.nomProjet);
+      if (selectedProjectFamily === "ga") return family === "ga";
+      if (selectedProjectFamily === "biw") return family === "biw";
+      if (selectedProjectFamily === "vie_serie") return family === "vie_serie";
+      if (selectedProjectFamily === "other") {
+        if (selectedOtherProject) return d.nomProjet === selectedOtherProject;
+        return family === "other";
+      }
+      return true;
+    });
+  }, [selectedProjectFamily, selectedOtherProject]);
+
+  const scopedTableData = useMemo(() => applyProjectScope(tableData), [tableData, applyProjectScope]);
+  const scopedPreviousData = useMemo(
+    () => (previousData ? applyProjectScope(previousData) : null),
+    [previousData, applyProjectScope]
+  );
 
   // Configuration des largeurs de colonnes pour le freeze
   const COL_WIDTHS = {
@@ -1158,6 +1181,8 @@ function ProcureApp({ currentUser }) {
         setPageSize(state.pageSize || 25);
         setSelectedProjet(state.selectedProjet || "");
         setSelectedSousProjet(state.selectedSousProjet || "");
+        setSelectedProjectFamily(state.selectedProjectFamily || "");
+        setSelectedOtherProject(state.selectedOtherProject || "");
       }
     };
 
@@ -1184,6 +1209,8 @@ function ProcureApp({ currentUser }) {
       pageSize,
       selectedProjet,
       selectedSousProjet,
+      selectedProjectFamily,
+      selectedOtherProject,
     };
 
     // Push new state to history
@@ -1209,6 +1236,50 @@ function ProcureApp({ currentUser }) {
     }
   }, [activePage, activePanel]);
 
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("projectFilterState");
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      setSelectedProjectFamily(saved.selectedProjectFamily || "");
+      setSelectedOtherProject(saved.selectedOtherProject || "");
+    } catch (e) {
+      console.warn("Failed to load project filter state", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(
+        "projectFilterState",
+        JSON.stringify({ selectedProjectFamily, selectedOtherProject })
+      );
+    } catch (e) {
+      console.warn("Failed to save project filter state", e);
+    }
+  }, [selectedProjectFamily, selectedOtherProject]);
+
+  useEffect(() => {
+    setProjectFadeAlt(prev => !prev);
+  }, [selectedProjectFamily, selectedOtherProject]);
+
+  useEffect(() => {
+    if (tableData.length === 0) return;
+    if (selectedProjectFamily === "ga" && projectNavModel.ga.count === 0) setSelectedProjectFamily("");
+    if (selectedProjectFamily === "biw" && projectNavModel.biw.count === 0) setSelectedProjectFamily("");
+    if (selectedProjectFamily === "vie_serie" && projectNavModel.vie_serie.count === 0) setSelectedProjectFamily("");
+    if (selectedProjectFamily === "other" && selectedOtherProject) {
+      const exists = projectNavModel.other.projects.some(p => p.name === selectedOtherProject);
+      if (!exists) setSelectedOtherProject("");
+    }
+    if (!selectedProjectFamily && !selectedOtherProject) {
+      if (projectNavModel.ga.count > 0) setSelectedProjectFamily("ga");
+      else if (projectNavModel.biw.count > 0) setSelectedProjectFamily("biw");
+      else if (projectNavModel.vie_serie.count > 0) setSelectedProjectFamily("vie_serie");
+      else if (projectNavModel.other.count > 0) setSelectedProjectFamily("other");
+    }
+  }, [tableData, projectNavModel, selectedProjectFamily, selectedOtherProject]);
+
   const showToasts = () => setToasts(TOAST_CONFIGS.map((t, i) => ({ ...t, id: Date.now() + i })));
 
   const clearFilters = () => {
@@ -1218,18 +1289,8 @@ function ProcureApp({ currentUser }) {
     setSelectedProjectFamily(""); setSelectedOtherProject("");
   };
 
-  const { isRelanceEligible, openRelanceEmail } = useRelanceEmail();
-
   // Filtering
-  const filtered = tableData.filter(d => {
-    const projectFamily = getProjectFamily(d.nomProjet);
-    if (selectedProjectFamily === "ga" && projectFamily !== "ga") return false;
-    if (selectedProjectFamily === "vie_serie" && projectFamily !== "vie_serie") return false;
-    if (selectedProjectFamily === "biw" && projectFamily !== "biw") return false;
-    if (selectedProjectFamily === "other") {
-      if (selectedOtherProject && d.nomProjet !== selectedOtherProject) return false;
-      if (!selectedOtherProject && projectFamily !== "other") return false;
-    }
+  const filtered = scopedTableData.filter(d => {
     if (selectedProjet && d.nomProjet !== selectedProjet) return false;
     if (selectedSousProjet && d.sousProjet !== selectedSousProjet) return false;
     if (selectedStatut && d.statut !== selectedStatut) return false;
@@ -1249,18 +1310,18 @@ function ProcureApp({ currentUser }) {
   const relanceCount = filtered.filter(isRelanceEligible).length;
 
   // Fournisseurs
-  const fournisseursList = [...new Set(tableData.map(d => d.nomFournisseur))];
+  const fournisseursList = [...new Set(scopedTableData.map(d => d.nomFournisseur))];
   const fournisseurCounts = {};
-  fournisseursList.forEach(f => { fournisseurCounts[f] = tableData.filter(d => d.nomFournisseur === f).length; });
+  fournisseursList.forEach(f => { fournisseurCounts[f] = scopedTableData.filter(d => d.nomFournisseur === f).length; });
 
   // Unique suppliers for sidebar
   const uniqueSuppliers = fournisseursList.map(f => {
-    return tableData.find(d => d.nomFournisseur === f) || { nomFournisseur: f, psaId: "", quantiteEcheancee: "-", quantiteLivree: "-", dateEcheance: "-" };
+    return scopedTableData.find(d => d.nomFournisseur === f) || { nomFournisseur: f, psaId: "", quantiteEcheancee: "-", quantiteLivree: "-", dateEcheance: "-" };
   });
 
   // Counts
   const statusCounts = {};
-  tableData.forEach(d => { statusCounts[d.statut] = (statusCounts[d.statut] || 0) + 1; });
+  scopedTableData.forEach(d => { statusCounts[d.statut] = (statusCounts[d.statut] || 0) + 1; });
 
   // Editable cell handler
   const handleEditStart = (id, field) => { setEditingCell({ id, field }); };
@@ -1323,7 +1384,7 @@ function ProcureApp({ currentUser }) {
   // inline keyframes
   useEffect(() => {
     const style = document.createElement("style");
-    style.textContent = `@keyframes slideIn{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}`;
+    style.textContent = `@keyframes slideIn{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}@keyframes fadeProjectA{from{opacity:.82}to{opacity:1}}@keyframes fadeProjectB{from{opacity:.82}to{opacity:1}}`;
     document.head.appendChild(style);
     return () => document.head.removeChild(style);
   }, []);
@@ -1767,7 +1828,8 @@ function ProcureApp({ currentUser }) {
         <div style={{ 
           flex: 1, display: "flex", flexDirection: "column", overflow: "hidden",
           marginLeft: (sidebarOpen ? 220 : 56) + (activePanel ? (activePanel === "rapport-impact" ? 280 : 250) : 0),
-          transition: "margin-left 0.25s cubic-bezier(0.4,0,0.2,1)"
+          transition: "margin-left 0.25s cubic-bezier(0.4,0,0.2,1)",
+          animation: `${projectFadeAlt ? "fadeProjectA" : "fadeProjectB"} 180ms ease`
         }}>
           {/* Breadcrumb */}
           <div style={{ background: "#fff", borderBottom: "1px solid #f1f5f9", padding: "10px 20px", fontSize: 13, color: "#64748b", flexShrink: 0 }}>
@@ -1778,7 +1840,7 @@ function ProcureApp({ currentUser }) {
           </div>
 
           {/* Page routing */}
-          {activePage === "dashboard" && <PageDashboard data={tableData} previousData={previousData} importDiff={importDiff} cumulativeStats={cumulativeStats}
+          {activePage === "dashboard" && <PageDashboard data={scopedTableData} previousData={scopedPreviousData} importDiff={importDiff} cumulativeStats={cumulativeStats}
             onFilter={st => { setSelectedStatut(st); navigateWithHistory("table", ""); setCurrentPage(1); }}
             onSetFournisseur={f => { setSelectedFournisseur(f); navigateWithHistory("table", ""); setCurrentPage(1); }}
             onSetProjet={p => { setSelectedProjectFamily(""); setSelectedOtherProject(""); setSelectedProjet(p); navigateWithHistory("table", ""); setCurrentPage(1); }}
@@ -1818,8 +1880,8 @@ function ProcureApp({ currentUser }) {
               navigateWithHistory("table", "");
             }}
           /></Suspense>}
-          {activePage === "export" && <PageExport filteredCount={filtered.length} totalCount={tableData.length} />}
-          {activePage === "graphique" && <Suspense fallback={<div style={{ padding: 24, color: "#64748b" }}>Chargement...</div>}><PageGraphique data={tableData} /></Suspense>}
+          {activePage === "export" && <PageExport filteredCount={filtered.length} totalCount={scopedTableData.length} />}
+          {activePage === "graphique" && <Suspense fallback={<div style={{ padding: 24, color: "#64748b" }}>Chargement...</div>}><PageGraphique data={scopedTableData} /></Suspense>}
           {activePage === "journal" && <Suspense fallback={<div style={{ padding: 24, color: "#64748b" }}>Chargement...</div>}><PageJournal importHistory={importHistory} /></Suspense>}
           {activePage === "otd" && <Suspense fallback={<div style={{ padding: 24, color: "#64748b" }}>Chargement...</div>}><PageOTD /></Suspense>}
           {activePage === "rapport-rft" && <Suspense fallback={<div style={{ padding: 24, color: "#64748b" }}>Chargement...</div>}><PageRFT /></Suspense>}
@@ -1827,7 +1889,7 @@ function ProcureApp({ currentUser }) {
           {activePage === "rapport-impact" && (
             <PageRapportImpact 
               sousProjet={selectedSousProjet}
-              data={tableData}
+              data={scopedTableData}
               impactSearch={impactSearch} setImpactSearch={setImpactSearch}
               impactDateFrom={impactDateFrom} setImpactDateFrom={setImpactDateFrom}
               impactDateTo={impactDateTo} setImpactDateTo={setImpactDateTo}
@@ -2213,7 +2275,7 @@ function ProcureApp({ currentUser }) {
 
       {/* Fiche Fournisseur Modal */}
       {ficheFournisseur && (
-        <FicheFournisseur fournisseur={ficheFournisseur} data={tableData}
+        <FicheFournisseur fournisseur={ficheFournisseur} data={scopedTableData}
           onClose={() => setFicheFournisseur(null)}
           onFilter={f => { setSelectedFournisseur(f); navigateWithHistory("table", ""); setCurrentPage(1); }} />
       )}
