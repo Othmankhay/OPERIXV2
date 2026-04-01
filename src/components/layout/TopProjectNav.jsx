@@ -1,4 +1,4 @@
-﻿import React from "react";
+﻿import React, { useEffect, useRef, useState } from "react";
 
 export default function TopProjectNav({
   projectNavModel,
@@ -11,6 +11,25 @@ export default function TopProjectNav({
   onSelectOtherProject,
   onSelectOtherGroup,
 }) {
+  const otherBtnRef = useRef(null);
+  const [dropdownPos, setDropdownPos] = useState({ top: 60, left: 8 });
+
+  useEffect(() => {
+    if (openDropdown !== "other-projects") return;
+    const updatePos = () => {
+      if (!otherBtnRef.current) return;
+      const rect = otherBtnRef.current.getBoundingClientRect();
+      setDropdownPos({ top: rect.bottom + 6, left: Math.max(8, rect.left) });
+    };
+    updatePos();
+    window.addEventListener("resize", updatePos);
+    window.addEventListener("scroll", updatePos, true);
+    return () => {
+      window.removeEventListener("resize", updatePos);
+      window.removeEventListener("scroll", updatePos, true);
+    };
+  }, [openDropdown]);
+
   return (
     <div style={{ display: "flex", gap: 10, flex: 1, justifyContent: "center", overflowX: "auto", padding: "2px 0" }}>
       {[
@@ -59,6 +78,7 @@ export default function TopProjectNav({
 
       <div style={{ position: "relative" }}>
         <button
+          ref={otherBtnRef}
           disabled={projectNavModel.other.count === 0}
           onClick={() => setOpenDropdown(openDropdown === "other-projects" ? "" : "other-projects")}
           style={{
@@ -88,7 +108,7 @@ export default function TopProjectNav({
         {openDropdown === "other-projects" && projectNavModel.other.count > 0 && (
           <>
             <div onClick={() => setOpenDropdown("")} style={{ position: "fixed", inset: 0, zIndex: 999 }} />
-            <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, minWidth: 260, maxHeight: 320, overflowY: "auto", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, boxShadow: "0 10px 24px rgba(15,23,42,0.12)", zIndex: 1000, padding: 8 }}>
+            <div style={{ position: "fixed", top: dropdownPos.top, left: dropdownPos.left, minWidth: 260, maxHeight: 320, overflowY: "auto", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, boxShadow: "0 10px 24px rgba(15,23,42,0.12)", zIndex: 1000, padding: 8 }}>
               <div
                 onClick={onSelectOtherGroup}
                 style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600, color: selectedProjectFamily === "other" && !selectedOtherProject ? "#1e40af" : "#334155", background: selectedProjectFamily === "other" && !selectedOtherProject ? "#eff6ff" : "transparent" }}
