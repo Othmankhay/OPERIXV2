@@ -1,5 +1,5 @@
 ﻿import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { STATUT_CONFIG, PROJETS, ALL_COLUMNS, DEFAULT_VISIBLE, TOAST_CONFIGS, TOAST_STYLES, SIDEBAR_ITEMS } from "./config";
+import { STATUT_CONFIG, ALL_COLUMNS, DEFAULT_VISIBLE, TOAST_CONFIGS, TOAST_STYLES, SIDEBAR_ITEMS } from "./config";
 import { getStatusColor, getAllStatusColors } from "./statusColorManager";
 import ColumnSelectionModal from "./ColumnManager";
 import PageGraphique from "./PageGraphique";
@@ -62,6 +62,22 @@ function computeDiff(prevData, newData) {
   return { added, modified, newRetards };
 }
 
+const normalizeProjectName = (value) =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
+const getProjectFamily = (projectName) => {
+  const n = normalizeProjectName(projectName);
+  if (!n) return "other";
+  if (n.includes("biw") || n.includes("ferrage")) return "biw";
+  if (n.includes("vie serie") || n.includes("vieserie") || /(^|[\s\-_])vs($|[\s\-_])/.test(n)) return "vie_serie";
+  if (n.includes("multi projet") || /(^|[\s\-_])ga($|[\s\-_])/.test(n)) return "ga";
+  return "other";
+};
+
 /* ─── Dynamic monthly chart ────────────────────────── */
 const MOIS_LABELS = ['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Août','Sep','Oct','Nov','Déc'];
 const CHART_SERIES_CFG = [
@@ -97,6 +113,10 @@ function PageDashboard({ data, previousData, importDiff, cumulativeStats, onFilt
   const [graphProject, setGraphProject] = useState("Tous");
   const [hiddenSeries, setHiddenSeries] = useState([]);
   const [showComparison, setShowComparison] = useState(true);
+  const availableProjects = useMemo(
+    () => [...new Set(data.map(d => String(d.nomProjet || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr")),
+    [data]
+  );
 
   const filteredData = graphProject === "Tous" ? data : data.filter(d => d.nomProjet === graphProject);
   const filteredPrev = previousData
@@ -278,7 +298,7 @@ function PageDashboard({ data, previousData, importDiff, cumulativeStats, onFilt
         <select value={graphProject} onChange={e => setGraphProject(e.target.value)}
           style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#fff", fontSize: 13, fontWeight: 600, color: "#1a2744", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.05)", outline: "none" }}>
           <option value="Tous">Tous les projets</option>
-          {Object.keys(PROJETS).map(p => <option key={p} value={p}>{p}</option>)}
+          {availableProjects.map(p => <option key={p} value={p}>{p}</option>)}
         </select>
       </div>
 
@@ -1005,6 +1025,8 @@ function ProcureApp({ currentUser }) {
   const [search, setSearch] = useState("");
   const [selectedProjet, setSelectedProjet] = useState("");
   const [selectedSousProjet, setSelectedSousProjet] = useState("");
+  const [selectedProjectFamily, setSelectedProjectFamily] = useState("");
+  const [selectedOtherProject, setSelectedOtherProject] = useState("");
   const [openDropdown, setOpenDropdown] = useState("");
   const [selectedStatut, setSelectedStatut] = useState("");
   const [selectedRows, setSelectedRows] = useState([]);
@@ -1027,6 +1049,7 @@ function ProcureApp({ currentUser }) {
   const [importDiff, setImportDiff] = useState(null);
   const [showSupplierSidebar, setShowSupplierSidebar] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [compactProjectNav, setCompactProjectNav] = useState(typeof window !== "undefined" ? window.innerWidth <= 900 : false);
   const [colorLines, setColorLines] = useState(false);
   const [showFournisseurs, setShowFournisseurs] = useState(false);
   const [selectedFournisseur, setSelectedFournisseur] = useState("");
@@ -1065,20 +1088,43 @@ function ProcureApp({ currentUser }) {
   // Use imported data only
   const tableData = importedData || [];
 
-  // ── Dynamic projects/sub-projects from imported data ──
-  const dynamicProjets = useMemo(() => {
-    if (!tableData || tableData.length === 0) return PROJETS;
-    const proj = {};
-    tableData.forEach(d => {
-      if (!d.nomProjet) return;
-      if (!proj[d.nomProjet]) proj[d.nomProjet] = new Set();
-      if (d.sousProjet) proj[d.nomProjet].add(d.sousProjet);
+  const projectNavModel = useMemo(() => {
+    const gaNames = new Set();
+    const vieSerieNames = new Set();
+    const biwNames = new Set();
+    const otherMap = new Map();
+    let gaCount = 0;
+    let vieSerieCount = 0;
+    let biwCount = 0;
+
+    tableData.forEach((row) => {
+      const projectName = String(row.nomProjet || "").trim();
+      if (!projectName) return;
+      const family = getProjectFamily(projectName);
+      if (family === "ga") {
+        gaCount += 1;
+        gaNames.add(projectName);
+      } else if (family === "vie_serie") {
+        vieSerieCount += 1;
+        vieSerieNames.add(projectName);
+      } else if (family === "biw") {
+        biwCount += 1;
+        biwNames.add(projectName);
+      } else {
+        otherMap.set(projectName, (otherMap.get(projectName) || 0) + 1);
+      }
     });
-    const result = {};
-    Object.keys(proj).forEach(p => { result[p] = [...proj[p]]; });
-    // Keep PROJETS keys that have no data yet
-    Object.keys(PROJETS).forEach(p => { if (!result[p]) result[p] = PROJETS[p]; });
-    return result;
+
+    const otherProjects = Array.from(otherMap.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name, "fr"));
+
+    return {
+      ga: { count: gaCount, projects: Array.from(gaNames).sort((a, b) => a.localeCompare(b, "fr")) },
+      vie_serie: { count: vieSerieCount, projects: Array.from(vieSerieNames).sort((a, b) => a.localeCompare(b, "fr")) },
+      biw: { count: biwCount, projects: Array.from(biwNames).sort((a, b) => a.localeCompare(b, "fr")) },
+      other: { count: otherProjects.reduce((sum, p) => sum + p.count, 0), projects: otherProjects },
+    };
   }, [tableData]);
 
   // Configuration des largeurs de colonnes pour le freeze
@@ -1217,10 +1263,76 @@ function ProcureApp({ currentUser }) {
     setSearch(""); setSelectedProjet(""); setSelectedSousProjet("");
     setSelectedStatut(""); setSelectedFournisseur(""); setSince("");
     setCurrentPage(1); setPageSize(25); setOpenDropdown(""); setShowFournisseurs(false);
+    setSelectedProjectFamily(""); setSelectedOtherProject("");
+  };
+
+  const parseAnyDateToTime = (value) => {
+    if (!value) return 0;
+    const raw = String(value).trim();
+    if (!raw) return 0;
+
+    const isoOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoOnly) {
+      const [, y, m, d] = isoOnly;
+      const dt = new Date(Number(y), Number(m) - 1, Number(d), 0, 0, 0, 0);
+      return isNaN(dt.getTime()) ? 0 : dt.getTime();
+    }
+
+    const slash = raw.split(" ")[0].split("/");
+    if (slash.length === 3) {
+      const [d, m, y] = slash;
+      const dt = new Date(Number(y), Number(m) - 1, Number(d), 0, 0, 0, 0);
+      return isNaN(dt.getTime()) ? 0 : dt.getTime();
+    }
+
+    const parsed = new Date(raw);
+    return isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+  };
+
+  const toNumberSafe = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const isRelanceEligible = (row) => {
+    const due = parseAnyDateToTime(row.dateEcheance);
+    if (!due) return false;
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const qteEcheance = toNumberSafe(row.qteEcheance ?? row.quantiteEcheancee);
+    const qteLivree = toNumberSafe(row.qteLivree ?? row.quantiteLivree);
+    return due < todayStart.getTime() && qteLivree < qteEcheance;
+  };
+
+  const openRelanceEmail = (row) => {
+    const to = row.emailFournisseur || row.email || "";
+    const qteEcheance = row.qteEcheance ?? row.quantiteEcheancee ?? "-";
+    const subject = `[URGENT] Relance Livraison - Projet : ${row.nomProjet || "-"} - Réf : ${row.article || "-"}`;
+    const body = `Bonjour ${row.nomFournisseur || "Fournisseur"},
+
+Nous constatons un retard sur la pièce ${row.designation || "-"} (Code : ${row.article || "-"}).
+Quantité attendue : ${qteEcheance}
+Date d'échéance : ${row.dateEcheance || "-"}
+
+Merci de nous confirmer une nouvelle date de livraison par retour de mail.
+
+Cordialement,
+L'équipe Logistique.`;
+    const mailtoLink = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.location.href = mailtoLink;
   };
 
   // Filtering
   const filtered = tableData.filter(d => {
+    const projectFamily = getProjectFamily(d.nomProjet);
+    if (selectedProjectFamily === "ga" && projectFamily !== "ga") return false;
+    if (selectedProjectFamily === "vie_serie" && projectFamily !== "vie_serie") return false;
+    if (selectedProjectFamily === "biw" && projectFamily !== "biw") return false;
+    if (selectedProjectFamily === "other") {
+      if (selectedOtherProject && d.nomProjet !== selectedOtherProject) return false;
+      if (!selectedOtherProject && projectFamily !== "other") return false;
+    }
     if (selectedProjet && d.nomProjet !== selectedProjet) return false;
     if (selectedSousProjet && d.sousProjet !== selectedSousProjet) return false;
     if (selectedStatut && d.statut !== selectedStatut) return false;
@@ -1237,6 +1349,7 @@ function ProcureApp({ currentUser }) {
 
   const totalPages = Math.ceil(filtered.length / pageSize);
   const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const relanceCount = filtered.filter(isRelanceEligible).length;
 
   // Fournisseurs
   const fournisseursList = [...new Set(tableData.map(d => d.nomFournisseur))];
@@ -1276,6 +1389,8 @@ function ProcureApp({ currentUser }) {
   const applyFilter = (criteria) => {
     setSelectedProjet(criteria.selectedProjet || "");
     setSelectedSousProjet(criteria.selectedSousProjet || "");
+    setSelectedProjectFamily("");
+    setSelectedOtherProject("");
     setSelectedStatut(criteria.selectedStatut || "");
     setSelectedFournisseur(criteria.selectedFournisseur || "");
     setSearch(criteria.search || "");
@@ -1316,6 +1431,12 @@ function ProcureApp({ currentUser }) {
     return () => document.head.removeChild(style);
   }, []);
 
+  useEffect(() => {
+    const onResize = () => setCompactProjectNav(window.innerWidth <= 900);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
   return (
     <div style={{ minHeight: "100vh", background: "#f0f2f5", fontFamily: "'DM Sans','Segoe UI',sans-serif", color: "#1a202c" }}>
       {/* ─── TOASTS ──────────────────────────────────── */}
@@ -1335,46 +1456,124 @@ function ProcureApp({ currentUser }) {
       }}>
         <span style={{ color: "#fff", fontWeight: 700, fontSize: 20, letterSpacing: 1.5, marginRight: 16 }}>OPERIX</span>
         <div style={{ width: 1, height: 24, background: "#ffffff22", marginRight: 16 }} />
-        <div style={{ display: "flex", gap: 24, flex: 1, justifyContent: "center" }}>
-          {Object.keys(dynamicProjets).map(proj => {
-            const active = selectedProjet === proj;
-            const subProjets = dynamicProjets[proj] || [];
+        <div style={{ display: "flex", gap: 10, flex: 1, justifyContent: "center", overflowX: "auto", padding: "2px 0" }}>
+          {[
+            { key: "ga", title: "PROJET GA", subtitle: "Multi projet", count: projectNavModel.ga.count },
+            { key: "biw", title: "PROJET BIW", subtitle: "Ferrage projet", count: projectNavModel.biw.count },
+            { key: "vie_serie", title: "VIE SÉRIE", subtitle: "Vie série", count: projectNavModel.vie_serie.count },
+          ].map(item => {
+            const active = selectedProjectFamily === item.key;
+            const disabled = item.count === 0;
             return (
-              <div key={proj} style={{ display: "flex", alignItems: "center", position: "relative" }}>
-                <button onClick={() => { setSelectedProjet(active ? "" : proj); setSelectedSousProjet(""); setCurrentPage(1); }}
-                  style={{ background: "none", border: "none", color: active ? "#60a5fa" : "#94a3b8", fontWeight: 600, fontSize: 13, cursor: "pointer", padding: "6px 8px", borderBottom: active ? "2px solid #60a5fa" : "2px solid transparent", transition: "all 0.2s" }}>{proj}</button>
-                <button onClick={e => { e.stopPropagation(); setOpenDropdown(openDropdown === proj ? "" : proj); }}
-                  style={{ background: "none", border: "none", color: active ? "#60a5fa" : "#94a3b8", cursor: "pointer", fontSize: 11, padding: "4px 2px" }}>▼</button>
-                {openDropdown === proj && (
-                  <>
-                    <div onClick={() => setOpenDropdown("")} style={{ position: "fixed", inset: 0, zIndex: 999 }} />
-                    <div style={{ position: "absolute", top: "100%", left: 0, background: "#fff", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", padding: 8, zIndex: 1000, minWidth: 180 }}>
-                      <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, padding: "4px 10px", marginBottom: 4 }}>
-                        Sous-projets {subProjets.length > 0 ? `(${subProjets.length})` : ""}
-                      </div>
-                      <div onClick={() => { setSelectedProjet(proj); setSelectedSousProjet(""); setOpenDropdown(""); setCurrentPage(1); }}
-                        style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 500, background: selectedProjet === proj && !selectedSousProjet ? "#eff6ff" : "transparent", color: selectedProjet === proj && !selectedSousProjet ? "#1e40af" : "#1a202c" }}
-                        onMouseEnter={e => { if (!(selectedProjet === proj && !selectedSousProjet)) e.currentTarget.style.background = "#f8fafc"; }}
-                        onMouseLeave={e => { if (!(selectedProjet === proj && !selectedSousProjet)) e.currentTarget.style.background = "transparent"; }}>
-                        📁 Tous les sous-projets
-                      </div>
-                      {subProjets.length === 0 && (
-                        <div style={{ padding: "6px 10px", fontSize: 12, color: "#94a3b8", fontStyle: "italic" }}>Aucun sous-projet dans les données</div>
-                      )}
-                      {subProjets.map(sp => (
-                        <div key={sp} onClick={() => { setSelectedProjet(proj); setSelectedSousProjet(sp); setOpenDropdown(""); setCurrentPage(1); }}
-                          style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 500, background: selectedSousProjet === sp ? "#eff6ff" : "transparent", color: selectedSousProjet === sp ? "#1e40af" : "#1a202c" }}
-                          onMouseEnter={e => { if (selectedSousProjet !== sp) e.currentTarget.style.background = "#f8fafc"; }}
-                          onMouseLeave={e => { if (selectedSousProjet !== sp) e.currentTarget.style.background = "transparent"; }}>
-                          📂 {sp}
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
+              <button
+                key={item.key}
+                disabled={disabled}
+                onClick={() => {
+                  const next = active ? "" : item.key;
+                  setSelectedProjectFamily(next);
+                  setSelectedOtherProject("");
+                  setSelectedProjet("");
+                  setSelectedSousProjet("");
+                  setCurrentPage(1);
+                }}
+                style={{
+                  border: "1px solid",
+                  borderColor: active ? "#3b82f6" : "#d1d5db",
+                  background: active ? "#eff6ff" : "#ffffff",
+                  color: disabled ? "#94a3b8" : (active ? "#1e40af" : "#334155"),
+                  borderRadius: 10,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  padding: "8px 14px",
+                  cursor: disabled ? "not-allowed" : "pointer",
+                  opacity: disabled ? 0.6 : 1,
+                  whiteSpace: "nowrap",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.1 }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, letterSpacing: 0.2 }}>{item.title}</span>
+                  {!compactProjectNav && (
+                    <span style={{ fontSize: 11, color: active ? "#64748b" : "#9ca3af", fontWeight: 500, marginTop: 2 }}>
+                      {item.subtitle}
+                    </span>
+                  )}
+                </span>
+                <span style={{ fontSize: 11, color: active ? "#1e40af" : "#64748b", background: active ? "#dbeafe" : "#f1f5f9", borderRadius: 999, padding: "2px 8px" }}>
+                  {item.count}
+                </span>
+              </button>
             );
           })}
+
+          <div style={{ position: "relative" }}>
+            <button
+              disabled={projectNavModel.other.count === 0}
+              onClick={() => setOpenDropdown(openDropdown === "other-projects" ? "" : "other-projects")}
+              style={{
+                border: "1px solid",
+                borderColor: selectedProjectFamily === "other" ? "#3b82f6" : "#d1d5db",
+                background: selectedProjectFamily === "other" ? "#eff6ff" : "#ffffff",
+                color: projectNavModel.other.count === 0 ? "#94a3b8" : (selectedProjectFamily === "other" ? "#1e40af" : "#334155"),
+                borderRadius: 10,
+                fontSize: 13,
+                fontWeight: 600,
+                padding: "8px 14px",
+                cursor: projectNavModel.other.count === 0 ? "not-allowed" : "pointer",
+                opacity: projectNavModel.other.count === 0 ? 0.6 : 1,
+                whiteSpace: "nowrap",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <span style={{ fontSize: 14, fontWeight: 700, letterSpacing: 0.2 }}>AUTRES</span>
+              <span style={{ fontSize: 11, color: selectedProjectFamily === "other" ? "#1e40af" : "#64748b", background: selectedProjectFamily === "other" ? "#dbeafe" : "#f1f5f9", borderRadius: 999, padding: "2px 8px" }}>
+                {projectNavModel.other.count}
+              </span>
+              <span style={{ fontSize: 10 }}>▼</span>
+            </button>
+
+            {openDropdown === "other-projects" && projectNavModel.other.count > 0 && (
+              <>
+                <div onClick={() => setOpenDropdown("")} style={{ position: "fixed", inset: 0, zIndex: 999 }} />
+                <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, minWidth: 260, maxHeight: 320, overflowY: "auto", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, boxShadow: "0 10px 24px rgba(15,23,42,0.12)", zIndex: 1000, padding: 8 }}>
+                  <div
+                    onClick={() => {
+                      setSelectedProjectFamily("other");
+                      setSelectedOtherProject("");
+                      setSelectedProjet("");
+                      setSelectedSousProjet("");
+                      setOpenDropdown("");
+                      setCurrentPage(1);
+                    }}
+                    style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600, color: selectedProjectFamily === "other" && !selectedOtherProject ? "#1e40af" : "#334155", background: selectedProjectFamily === "other" && !selectedOtherProject ? "#eff6ff" : "transparent" }}
+                  >
+                    Tous les autres projets
+                  </div>
+                  {projectNavModel.other.projects.map(p => (
+                    <div
+                      key={p.name}
+                      onClick={() => {
+                        setSelectedProjectFamily("other");
+                        setSelectedOtherProject(p.name);
+                        setSelectedProjet("");
+                        setSelectedSousProjet("");
+                        setOpenDropdown("");
+                        setCurrentPage(1);
+                      }}
+                      style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer", fontSize: 13, color: selectedOtherProject === p.name ? "#1e40af" : "#334155", background: selectedOtherProject === p.name ? "#eff6ff" : "transparent", display: "flex", justifyContent: "space-between", gap: 10 }}
+                    >
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                      <span style={{ fontSize: 11, color: "#64748b", background: "#f1f5f9", borderRadius: 999, padding: "1px 8px" }}>{p.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <div style={{ position: "relative", cursor: "pointer" }} onClick={showToasts}>
@@ -1778,7 +1977,7 @@ function ProcureApp({ currentUser }) {
           {activePage === "dashboard" && <PageDashboard data={tableData} previousData={previousData} importDiff={importDiff} cumulativeStats={cumulativeStats}
             onFilter={st => { setSelectedStatut(st); navigateWithHistory("table", ""); setCurrentPage(1); }}
             onSetFournisseur={f => { setSelectedFournisseur(f); navigateWithHistory("table", ""); setCurrentPage(1); }}
-            onSetProjet={p => { setSelectedProjet(p); navigateWithHistory("table", ""); setCurrentPage(1); }}
+            onSetProjet={p => { setSelectedProjectFamily(""); setSelectedOtherProject(""); setSelectedProjet(p); navigateWithHistory("table", ""); setCurrentPage(1); }}
             onSearch={s => { setSearch(s); navigateWithHistory("table", ""); setCurrentPage(1); }}
           />}
           {activePage === "profil" && <PageProfil onLogout={() => window.location.reload()} />}
@@ -1931,6 +2130,17 @@ function ProcureApp({ currentUser }) {
                     </span>
                   </div>
                 )}
+                <div style={{
+                  background: relanceCount > 0 ? "#fff7ed" : "#f8fafc",
+                  border: `1px solid ${relanceCount > 0 ? "#fdba74" : "#e2e8f0"}`,
+                  borderRadius: 8,
+                  padding: "4px 10px",
+                  fontSize: 11,
+                  color: relanceCount > 0 ? "#c2410c" : "#64748b",
+                  fontWeight: 700
+                }}>
+                  ✉️ Relances disponibles: {relanceCount}
+                </div>
                 <div style={{ width: 1, height: 24, background: "#e2e8f0" }} />
                 <select value={selectedStatut} onChange={e => { setSelectedStatut(e.target.value); setCurrentPage(1); }}
                   style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#f8fafc", fontSize: 13, cursor: "pointer" }}>
@@ -2020,6 +2230,7 @@ function ProcureApp({ currentUser }) {
                   <tbody>
                     {paged.map((row, i) => {
                       const sc = getStatusColor(row.statut);
+                      const relanceEligible = isRelanceEligible(row);
                       const isSelected = selectedRows.includes(row.id);
                       let rowBg = i % 2 === 1 ? "#fafbfc" : "#fff";
                       if (isSelected) rowBg = "#dbeafe";
@@ -2091,6 +2302,16 @@ function ProcureApp({ currentUser }) {
                           })}
                           <td style={{ padding: "10px 14px", borderBottom: colorLines ? `1px solid ${sc.dot}22` : "1px solid #f1f5f9", whiteSpace: "nowrap" }}>
                             <div style={{ display: "flex", gap: 4 }}>
+                              {relanceEligible && (
+                                <button
+                                  title="Relancer par email"
+                                  onClick={() => openRelanceEmail(row)}
+                                  style={{ background: "#fff7ed", border: "1px solid #fdba74", borderRadius: 6, cursor: "pointer", fontSize: 12, padding: "3px 8px", color: "#c2410c", transition: "all 0.15s", fontWeight: 700 }}
+                                  onMouseEnter={e => { e.currentTarget.style.background = "#ffedd5"; e.currentTarget.style.borderColor = "#fb923c"; }}
+                                  onMouseLeave={e => { e.currentTarget.style.background = "#fff7ed"; e.currentTarget.style.borderColor = "#fdba74"; }}>
+                                  ✉️ Relancer
+                                </button>
+                              )}
                               {/* Historique */}
                               <button
                                 title="Afficher l'historique de la ligne"
