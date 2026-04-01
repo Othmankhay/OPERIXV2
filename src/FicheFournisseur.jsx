@@ -1,4 +1,4 @@
-import { STATUT_CONFIG } from "./config";
+﻿import { STATUT_CONFIG } from "./config";
 
 export default function FicheFournisseur({ fournisseur, data, onClose, onFilter }) {
   if (!fournisseur) return null;
@@ -102,3 +102,4 @@ export default function FicheFournisseur({ fournisseur, data, onClose, onFilter 
     </div>
   );
 }
+

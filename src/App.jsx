@@ -1,12 +1,11 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { STATUT_CONFIG, PROJETS, ALL_COLUMNS, DEFAULT_VISIBLE, MOCK_DATA, TOAST_CONFIGS, TOAST_STYLES, SIDEBAR_ITEMS } from "./config";
+﻿import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { STATUT_CONFIG, PROJETS, ALL_COLUMNS, DEFAULT_VISIBLE, TOAST_CONFIGS, TOAST_STYLES, SIDEBAR_ITEMS } from "./config";
 import { getStatusColor, getAllStatusColors } from "./statusColorManager";
 import ColumnSelectionModal from "./ColumnManager";
 import PageGraphique from "./PageGraphique";
 import PageJournal from "./PageJournal";
 import PageImports from "./PageImports";
 import FicheFournisseur from "./FicheFournisseur";
-import SupplierCard from "./SupplierCard";
 import SupplierSidebar from "./SupplierSidebar";
 import PageOTD from "./PageOTD";
 import PageRFT from "./PageRFT";
@@ -40,14 +39,6 @@ function Toast({ t, index, onClose, onApply }) {
     </div>
   );
 }
-
-const MOCK_RAPPORT_IMPACT = [
-  { id: "PR-001", idIbaVc: "IBA-001", nCtmqBa: "CTMQ-100", article: "VIS-HEX-M8", designation: "Vis hexagonale M8", codeFonction: "F01", codeFournisseur: "FRN-001", nomFournisseur: "Alpha", psaId: "PSA-123", utilisateurPSA: "Dupont M.", magasin: "MAG-A1", quantiteNecessaire: 1500, dateEngagement: "10/03/2026", dateEchLundi: "02/03/2026", statut: "Manquants Plus", dateLivraisonConfirmee: "", dernierCommentaire: "Relance urgente", statutRapportImpact: "Bloquant", requirementType: "Critique" },
-  { id: "PR-002", idIbaVc: "IBA-002", nCtmqBa: "CTMQ-101", article: "RLT-6204", designation: "Roulement 6204", codeFonction: "F02", codeFournisseur: "FRN-002", nomFournisseur: "Beta", psaId: "PSA-124", utilisateurPSA: "Martin J.", magasin: "MAG-B3", quantiteNecessaire: 800, dateEngagement: "15/03/2026", dateEchLundi: "23/04/2026", statut: "En cours", dateLivraisonConfirmee: "25/04/2026", dernierCommentaire: "En transit", statutRapportImpact: "À surveiller", requirementType: "Standard" },
-  { id: "PR-003", idIbaVc: "IBA-003", nCtmqBa: "BA-550", article: "JNT-TOR", designation: "Joint torique 45", codeFonction: "F03", codeFournisseur: "FRN-003", nomFournisseur: "Gamma", psaId: "PSA-125", utilisateurPSA: "Lefebvre M.", magasin: "MAG-C2", quantiteNecessaire: 5000, dateEngagement: "01/03/2026", dateEchLundi: "16/03/2026", statut: "Reçu", dateLivraisonConfirmee: "10/03/2026", dernierCommentaire: "Reception OK", statutRapportImpact: "OK", requirementType: "Standard" },
-  { id: "PR-004", idIbaVc: "IBA-004", nCtmqBa: "BA-551", article: "CPT-ELEC", designation: "Capteur électrique", codeFonction: "F04", codeFournisseur: "FRN-004", nomFournisseur: "Delta", psaId: "PSA-126", utilisateurPSA: "Moreau A.", magasin: "MAG-D1", quantiteNecessaire: 200, dateEngagement: "12/03/2026", dateEchLundi: "09/03/2026", statut: "Retard", dateLivraisonConfirmee: "", dernierCommentaire: "Problème douane", statutRapportImpact: "Bloquant", requirementType: "Urgent" },
-  { id: "PR-005", idIbaVc: "IBA-005", nCtmqBa: "CTMQ-102", article: "PLQ-ALU", designation: "Plaque aluminium", codeFonction: "F05", codeFournisseur: "FRN-005", nomFournisseur: "Epsilon", psaId: "PSA-127", utilisateurPSA: "Bernard C.", magasin: "MAG-E2", quantiteNecessaire: 1200, dateEngagement: "18/03/2026", dateEchLundi: "30/03/2026", statut: "Confirmé", dateLivraisonConfirmee: "02/04/2026", dernierCommentaire: "", statutRapportImpact: "OK", requirementType: "Standard" }
-];
 
 /* ─── Diff computation ─────────────────────────────── */
 const KEY_DIFF_FIELDS = ['statut','quantiteEcheancee','dateLivraisonConfirmee','nomFournisseur','dateEcheance'];
@@ -157,6 +148,13 @@ function PageDashboard({ data, previousData, importDiff, cumulativeStats, onFilt
   else if (otdPercent >= 50) { otdColor = "#d97706"; otdBg = "#fffbeb"; }
 
   const now = new Date();
+  const toLocalDateKey = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+  const todayKey = toLocalDateKey(now);
   const getWeekStart = (d) => { const date = new Date(d); const day = date.getDay() || 7; date.setDate(date.getDate() - day + 1); date.setHours(0,0,0,0); return date.getTime(); };
   const getWeekEnd = (d) => getWeekStart(d) + 6 * 86400000 + 86399999;
   const currentWeekStart = getWeekStart(now);
@@ -187,6 +185,14 @@ function PageDashboard({ data, previousData, importDiff, cumulativeStats, onFilt
     }
 
     // Fallback for ISO-ish formats (including yyyy-MM-dd and yyyy-MM-ddTHH:mm:ss)
+    // For plain yyyy-MM-dd, force local date to avoid timezone day shifts.
+    const localIsoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (localIsoMatch) {
+      const [, y, m, d] = localIsoMatch;
+      const localDate = new Date(Number(y), Number(m) - 1, Number(d), 0, 0, 0, 0);
+      if (!isNaN(localDate.getTime())) return localDate.getTime();
+    }
+
     const iso = new Date(raw);
     if (!isNaN(iso.getTime())) return iso.getTime();
 
@@ -277,16 +283,16 @@ function PageDashboard({ data, previousData, importDiff, cumulativeStats, onFilt
       </div>
 
       {/* Ligne 1 - KPIs */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 220px))", justifyContent: "start", gap: 12, marginBottom: 16 }}>
         {kpis.map(k => (
-          <div key={k.label} onClick={() => onFilter(k.filter)} style={{ background: k.bg, borderRadius: 12, padding: 16, cursor: "pointer", position: "relative", boxShadow: "0 2px 4px rgba(0,0,0,0.02)", transition: "all 0.2s" }}
+          <div key={k.label} onClick={() => onFilter(k.filter)} style={{ background: k.bg, borderRadius: 12, padding: 12, cursor: "pointer", position: "relative", boxShadow: "0 2px 4px rgba(0,0,0,0.02)", transition: "all 0.2s" }}
           onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-3px)"; e.currentTarget.style.boxShadow = "0 8px 16px rgba(0,0,0,0.08)"; }}
           onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = "0 2px 4px rgba(0,0,0,0.02)"; }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, color: "#64748b", fontWeight: 600, marginBottom: 4 }}>{k.label}</div>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                  <div style={{ fontSize: 28, fontWeight: 700, color: k.color }}>{k.value}</div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: k.color }}>{k.value}</div>
                   {k.delta && (
                     <div style={{
                       fontSize: 11, fontWeight: 700,
@@ -302,7 +308,7 @@ function PageDashboard({ data, previousData, importDiff, cumulativeStats, onFilt
                   <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>vs import précédent</div>
                 )}
               </div>
-              <span style={{ fontSize: 22 }}>{k.icon}</span>
+              <span style={{ fontSize: 18 }}>{k.icon}</span>
             </div>
           </div>
         ))}
@@ -414,55 +420,76 @@ function PageDashboard({ data, previousData, importDiff, cumulativeStats, onFilt
         </div>
       )}
 
-      {/* Ligne 2 - 3 Nouvelles Cartes */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16, marginBottom: 28 }}>
-        {/* Carte OTD */}
-        <div style={{ background: otdBg, borderRadius: 12, padding: 16, border: "1px solid #e2e8f0" }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#64748b", marginBottom: 8 }}>🎯 Taux OTD</div>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 10, marginBottom: 6 }}>
-            <div style={{ fontSize: 36, fontWeight: 700, color: otdColor, lineHeight: 1 }}>{otdPercent}%</div>
+      {/* Ligne 2 - cards compactes en ligne */}
+      <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "nowrap", overflowX: "auto", paddingBottom: 2 }}>
+        {/* Carte OTD compacte */}
+        <div style={{ background: otdBg, borderRadius: 12, padding: 12, border: "1px solid #e2e8f0", minWidth: 220, maxWidth: 280, flex: "1 1 220px" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", marginBottom: 6 }}>Taux OTD</div>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
+            <div style={{ fontSize: 28, fontWeight: 700, color: otdColor, lineHeight: 1 }}>{otdPercent}%</div>
             {otdDelta !== null && otdDelta !== 0 && (
-              <div style={{ fontSize: 12, fontWeight: 700, color: otdDelta > 0 ? "#16a34a" : "#dc2626", marginBottom: 4 }}>
-                {otdDelta > 0 ? `↑ +${otdDelta}%` : `↓ ${otdDelta}%`} vs import précédent
+              <div style={{ fontSize: 11, fontWeight: 700, color: otdDelta > 0 ? "#16a34a" : "#dc2626" }}>
+                {otdDelta > 0 ? `+${otdDelta}%` : `${otdDelta}%`}
               </div>
             )}
-            {otdDelta === 0 && <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 4 }}>= stable</div>}
+            {otdDelta === 0 && <div style={{ fontSize: 11, color: "#94a3b8" }}>stable</div>}
           </div>
-          <div style={{ background: "#f1f5f9", borderRadius: 20, height: 6, overflow: "hidden", marginTop: 12 }}>
+          <div style={{ background: "#f1f5f9", borderRadius: 20, height: 5, overflow: "hidden", marginTop: 10 }}>
             <div style={{ background: otdColor, height: "100%", width: `${otdPercent}%` }} />
           </div>
         </div>
-        {/* Semaine courante */}
-        <div style={{ background: "#fff", borderRadius: 12, padding: 16, border: "1px solid #e2e8f0" }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#1a2744", marginBottom: 12 }}>⏰ Semaine en cours (S)</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}><span style={{ color: "#64748b" }}>Attendues</span><span style={{ fontWeight: 600, color: "#1a2744" }}>{sTotal}</span></div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}><span style={{ color: "#64748b" }}>Confirmées ✅</span><span style={{ fontWeight: 600, color: "#16a34a" }}>{sConf}</span></div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}><span style={{ color: "#64748b" }}>Non confirmées ⚠️</span><span style={{ fontWeight: 600, color: "#d97706" }}>{sNonConf}</span></div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}><span style={{ color: "#64748b" }}>À risque 🔴</span><span style={{ fontWeight: 600, color: "#dc2626" }}>{sRisk}</span></div>
+
+        {/* Carte Semaine compacte */}
+        <div style={{ background: "#fff", borderRadius: 12, padding: 12, border: "1px solid #e2e8f0", minWidth: 280, maxWidth: 340, flex: "1 1 280px" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#1a2744", marginBottom: 8 }}>Semaine en cours</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 }}>
+            <div style={{ background: "#f8fafc", borderRadius: 8, padding: "6px 8px" }}>
+              <div style={{ fontSize: 10, color: "#64748b" }}>Attendues</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#1a2744" }}>{sTotal}</div>
+            </div>
+            <div style={{ background: "#f0fdf4", borderRadius: 8, padding: "6px 8px" }}>
+              <div style={{ fontSize: 10, color: "#64748b" }}>Conf.</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#16a34a" }}>{sConf}</div>
+            </div>
+            <div style={{ background: "#fffbeb", borderRadius: 8, padding: "6px 8px" }}>
+              <div style={{ fontSize: 10, color: "#64748b" }}>Non conf.</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#d97706" }}>{sNonConf}</div>
+            </div>
+            <div style={{ background: "#fef2f2", borderRadius: 8, padding: "6px 8px" }}>
+              <div style={{ fontSize: 10, color: "#64748b" }}>Risque</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#dc2626" }}>{sRisk}</div>
+            </div>
           </div>
-          <div style={{ background: "#f1f5f9", borderRadius: 20, height: 6, overflow: "hidden", marginTop: 10 }}>
-            <div style={{ background: "#16a34a", height: "100%", width: `${sTotal ? (sConf/sTotal)*100 : 0}%` }} />
+          <div style={{ background: "#f1f5f9", borderRadius: 20, height: 5, overflow: "hidden", marginTop: 8 }}>
+            <div style={{ background: "#16a34a", height: "100%", width: `${sTotal ? (sConf / sTotal) * 100 : 0}%` }} />
           </div>
         </div>
-        {/* Fournisseurs à risque (vue carte moderne) */}
-        <div style={{ background: "#fff", borderRadius: 12, padding: 16, border: "1px solid #e2e8f0" }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#1a2744", marginBottom: 10 }}>🏭 Fournisseurs à risque</div>
+
+        {/* Fournisseurs a risque en lignes */}
+        <div style={{ background: "#fff", borderRadius: 12, padding: 12, border: "1px solid #e2e8f0", minWidth: 360, flex: "2 1 420px" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#1a2744", marginBottom: 8 }}>Fournisseurs a risque</div>
           {topRiskSuppliers.length === 0 ? (
-            <div style={{ fontSize: 12, color: "#94a3b8" }}>Aucun risque détecté</div>
+            <div style={{ fontSize: 12, color: "#94a3b8" }}>Aucun risque detecte</div>
           ) : (
-            <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-              {topRiskSuppliers.map(f => {
-                // On recherche le premier objet fournisseur réel correspondant au nom
-                const supplierObj = filteredData.find(d => d.nomFournisseur === f.name) || { nomFournisseur: f.name, psaId: "", quantiteEcheancee: "-", quantiteLivree: "-", dateEcheance: "-" };
-                return (
-                  <SupplierCard
-                    key={f.name}
-                    supplier={supplierObj}
-                    onClick={() => onSetFournisseur(f.name)}
-                  />
-                );
-              })}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {topRiskSuppliers.map(f => (
+                <div
+                  key={f.name}
+                  onClick={() => onSetFournisseur(f.name)}
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "8px 10px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, cursor: "pointer" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "#eef2ff"; e.currentTarget.style.borderColor = "#c7d2fe"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#e2e8f0"; }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                    <span style={{ fontSize: 12 }}>{f.ic}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "#1a2744", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 170 }}>{f.name}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11, color: "#64748b", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 999, padding: "2px 8px" }}>{f.riskCount} risques</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: f.col, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 999, padding: "2px 8px" }}>OTD {f.otd}%</span>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -518,7 +545,7 @@ function PageDashboard({ data, previousData, importDiff, cumulativeStats, onFilt
         let calTotal = 0, calConf = 0, calRisk = 0;
 
         console.log("📅 Calendar debug:");
-        console.log("- Current week:", new Date(currentWeekStart).toISOString().split('T')[0], "to", new Date(currentWeekEnd).toISOString().split('T')[0]);
+        console.log("- Current week:", toLocalDateKey(new Date(currentWeekStart)), "to", toLocalDateKey(new Date(currentWeekEnd)));
         console.log("- Filtered data length:", filteredData.length);
         console.log("- Graph project filter:", graphProject);
 
@@ -527,8 +554,8 @@ function PageDashboard({ data, previousData, importDiff, cumulativeStats, onFilt
           dayDate.setDate(monday.getDate() + i);
           const dayStart = new Date(dayDate); dayStart.setHours(0,0,0,0);
           const dayEnd = new Date(dayDate); dayEnd.setHours(23,59,59,999);
-          const dayStr = dayDate.toISOString().split('T')[0];
-          const isToday = now.toISOString().split('T')[0] === dayStr;
+          const dayStr = toLocalDateKey(dayDate);
+          const isToday = todayKey === dayStr;
           const dayNames = ['LUN','MAR','MER','JEU','VEN'];
           let dTotal = 0, dConf = 0, dNonConf = 0, dRisk = 0;
           filteredData.forEach(d => {
@@ -741,7 +768,7 @@ function PageRapportImpact({
   const parseDate = dstr => {
     if (!dstr) return 0;
     const [d, m, y] = dstr.split("/");
-    const date = new Date(`${y}-${m}-${d}`);
+    const date = new Date(Number(y), Number(m) - 1, Number(d), 0, 0, 0, 0);
     return isNaN(date.getTime()) ? 0 : date.getTime();
   };
 
@@ -1033,9 +1060,10 @@ function ProcureApp({ currentUser }) {
   const [rowHistory, setRowHistory]         = useState({}); // { rowId: [{when,who,field,from,to}] }
   const [pplrlogComments, setPplrlogComments] = useState({}); // { rowId: [{user, comment}] }
   const [generalComments, setGeneralComments] = useState({}); // { rowId: [{user, comment}] }
+  const [cumulativeStats, setCumulativeStats] = useState({ totalCommandes: 0, recues: 0, enRetard: 0, imports: 0 });
 
-  // Use imported data or fall back to MOCK_DATA
-  const tableData = importedData || MOCK_DATA;
+  // Use imported data only
+  const tableData = importedData || [];
 
   // ── Dynamic projects/sub-projects from imported data ──
   const dynamicProjets = useMemo(() => {
@@ -1168,101 +1196,20 @@ function ProcureApp({ currentUser }) {
     setActivePanel(newPanel);
   };
 
-  // Save current state to sessionStorage for persistence
-  const saveStateToStorage = () => {
-    const state = {
-      activePage,
-      activePanel,
-      selectedStatut,
-      search,
-      since,
-      currentPage,
-      selectedFournisseur,
-      selectedRows,
-      showFournisseurs,
-      showColPanel,
-      colorLines,
-      visibleCols,
-      frozenUpTo,
-      pageSize,
-      selectedProjet,
-      selectedSousProjet,
-    };
-    sessionStorage.setItem("appState", JSON.stringify(state));
-  };
-
-  // Load state from sessionStorage
-  const loadStateFromStorage = () => {
-    try {
-      const saved = sessionStorage.getItem("appState");
-      if (saved) {
-        const state = JSON.parse(saved);
-        setActivePage(state.activePage || "table");
-        setActivePanel(state.activePanel || "");
-        setSelectedStatut(state.selectedStatut || "");
-        setSearch(state.search || "");
-        setSince(state.since || "");
-        setCurrentPage(state.currentPage || 1);
-        setSelectedFournisseur(state.selectedFournisseur || "");
-        setSelectedRows(state.selectedRows || []);
-        setShowFournisseurs(state.showFournisseurs || false);
-        setShowColPanel(state.showColPanel || false);
-        setColorLines(state.colorLines !== undefined ? state.colorLines : false);
-        setVisibleCols(state.visibleCols || DEFAULT_VISIBLE);
-        setFrozenUpTo(state.frozenUpTo || "");
-        setPageSize(state.pageSize || 25);
-        setSelectedProjet(state.selectedProjet || "");
-        setSelectedSousProjet(state.selectedSousProjet || "");
-      }
-    } catch (err) {
-      console.warn("Failed to load state from storage:", err);
-    }
-  };
-
   // Load initial state on mount
   useEffect(() => {
-    const savedState = sessionStorage.getItem("appState");
-    const hash = window.location.hash.slice(1); // Remove the #
-    
-    if (savedState) {
-      // Load from sessionStorage
-      loadStateFromStorage();
-    } else if (hash) {
-      // Load from URL hash
-      const [page, panel] = hash.split('-');
-      if (page) {
-        setActivePage(page);
-        setActivePanel(panel || "");
-      }
-    } else {
-      // Default initial state
-      setActivePage("table");
-      setActivePanel("");
-      window.history.replaceState({
-        activePage: "table",
-        activePanel: "",
-        selectedStatut: "",
-        search: "",
-        since: "",
-        currentPage: 1,
-        selectedFournisseur: "",
-        selectedRows: [],
-        showFournisseurs: false,
-        showColPanel: false,
-        colorLines: false,
-        visibleCols: DEFAULT_VISIBLE,
-        frozenUpTo: "",
-        pageSize: 25,
-        selectedProjet: "",
-        selectedSousProjet: "",
-      }, "", "#table");
-    }
+    // State is already initialized from the useState declarations, no need to set it again
   }, []);
 
-  // Save state whenever it changes
+  // Save state whenever page changes
   useEffect(() => {
-    saveStateToStorage();
-  }, [activePage, activePanel, selectedStatut, search, since, currentPage, selectedFournisseur, selectedRows, showFournisseurs, showColPanel, colorLines, visibleCols, frozenUpTo, pageSize, selectedProjet, selectedSousProjet]);
+    const state = { activePage, activePanel };
+    try {
+      sessionStorage.setItem("appState", JSON.stringify(state));
+    } catch (e) {
+      console.warn("Failed to save state", e);
+    }
+  }, [activePage, activePanel]);
 
   const showToasts = () => setToasts(TOAST_CONFIGS.map((t, i) => ({ ...t, id: Date.now() + i })));
 
@@ -1850,7 +1797,7 @@ function ProcureApp({ currentUser }) {
                 });
               });
 
-              const prev = importedData || MOCK_DATA;
+              const prev = importedData || [];
               const diff = computeDiff(prev, data);
               setPreviousData(prev);
               setImportDiff(diff);
@@ -1877,7 +1824,7 @@ function ProcureApp({ currentUser }) {
           {activePage === "rapport-impact" && (
             <PageRapportImpact 
               sousProjet={selectedSousProjet}
-              data={MOCK_RAPPORT_IMPACT}
+              data={tableData}
               impactSearch={impactSearch} setImpactSearch={setImpactSearch}
               impactDateFrom={impactDateFrom} setImpactDateFrom={setImpactDateFrom}
               impactDateTo={impactDateTo} setImpactDateTo={setImpactDateTo}
@@ -2461,3 +2408,7 @@ function ProcureApp({ currentUser }) {
     </div>
   );
 }
+
+
+
+

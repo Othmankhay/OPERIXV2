@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect } from "react";
 
 export default function LoginPage({ onLogin }) {
   const [email, setEmail] = useState("");
@@ -147,3 +147,4 @@ export default function LoginPage({ onLogin }) {
     </div>
   );
 }
+

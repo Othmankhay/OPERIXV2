@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 
 /**
  * SupplierCard - Carte fournisseur moderne (Dashboard/CRM style)
@@ -148,3 +148,4 @@ export default function SupplierCard({ supplier, onClick, fields }) {
     </div>
   );
 }
+

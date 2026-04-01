@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { STATUT_CONFIG as GLOBAL_CONFIG, PROJETS } from "./config";
 
 const STATUT_CONFIG = {
@@ -311,3 +311,4 @@ export default function PageGraphique({ data = [] }) {
     </div>
   );
 }
+

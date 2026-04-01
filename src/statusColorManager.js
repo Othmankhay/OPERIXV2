@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Status Color Management System
  * Handles persistent color assignments for statuses across imports
  * - Maintains existing status colors
@@ -218,3 +218,4 @@ export function setStatusColor(statusName, colorObj) {
   saveStatusColors(colors);
   return colors;
 }
+

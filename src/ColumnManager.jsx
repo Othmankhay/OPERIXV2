@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect } from "react";
 import { COLUMN_CATEGORIES, getDefaultVisibleColumns, getAllColumnsFlat } from "./columnConfig";
 
 /* ─── Column Selection Modal ──────────────────────────────────────── */
@@ -309,3 +309,4 @@ export function ColumnSelectionModal({ isOpen, onClose, visibleColumns, onColumn
 }
 
 export default ColumnSelectionModal;
+

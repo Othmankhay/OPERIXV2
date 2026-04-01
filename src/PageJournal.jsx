@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 
 const STATUT_STYLE = {
   "Succès": { bg: "#f0fdf4", color: "#16a34a", icon: "✅" },
@@ -107,3 +107,4 @@ export default function PageJournal({ importHistory = [] }) {
     </div>
   );
 }
+

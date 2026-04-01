@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 import SupplierCard from "./SupplierCard";
 
 /**
@@ -45,3 +45,4 @@ export default function SupplierSidebar({ suppliers, open, onClose, onSelect }) 
     </div>
   );
 }
+

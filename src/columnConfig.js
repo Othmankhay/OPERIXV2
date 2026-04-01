@@ -1,4 +1,4 @@
-/* ─── Column configuration organized by category ─────────────────── */
+﻿/* ─── Column configuration organized by category ─────────────────── */
 export const COLUMN_CATEGORIES = {
   identification: {
     label: "Identification",
@@ -106,3 +106,4 @@ export const getAllColumnsFlat = () => {
   });
   return flat;
 };
+

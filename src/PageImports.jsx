@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+﻿import { useState, useCallback, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { detectNewStatuses as _, generateStatusMappingReport, getStatusColor } from "./statusColorManager";
 
@@ -1408,3 +1408,4 @@ export default function PageImports({ onImport, currentData, currentUser }) {
     </div>
   );
 }
+
