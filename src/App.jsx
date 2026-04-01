@@ -1,16 +1,21 @@
-﻿import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+﻿import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } from "react";
 import { STATUT_CONFIG, ALL_COLUMNS, DEFAULT_VISIBLE, TOAST_CONFIGS, TOAST_STYLES, SIDEBAR_ITEMS } from "./config";
 import { getStatusColor, getAllStatusColors } from "./statusColorManager";
 import ColumnSelectionModal from "./ColumnManager";
-import PageGraphique from "./PageGraphique";
-import PageJournal from "./PageJournal";
-import PageImports from "./PageImports";
 import FicheFournisseur from "./FicheFournisseur";
 import SupplierSidebar from "./SupplierSidebar";
-import PageOTD from "./PageOTD";
-import PageRFT from "./PageRFT";
 import SplashScreen from "./SplashScreen";
 import LoginPage from "./LoginPage";
+import TopProjectNav from "./components/layout/TopProjectNav";
+import useProjectNavModel, { getProjectFamily } from "./hooks/useProjectNavModel";
+import useCompactNav from "./hooks/useCompactNav";
+import useRelanceEmail from "./hooks/useRelanceEmail";
+
+const PageGraphique = lazy(() => import("./PageGraphique"));
+const PageJournal = lazy(() => import("./PageJournal"));
+const PageImports = lazy(() => import("./PageImports"));
+const PageOTD = lazy(() => import("./PageOTD"));
+const PageRFT = lazy(() => import("./PageRFT"));
 
 /* ─── Toast component ───────────────────────────────── */
 function Toast({ t, index, onClose, onApply }) {
@@ -61,22 +66,6 @@ function computeDiff(prevData, newData) {
   });
   return { added, modified, newRetards };
 }
-
-const normalizeProjectName = (value) =>
-  String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-
-const getProjectFamily = (projectName) => {
-  const n = normalizeProjectName(projectName);
-  if (!n) return "other";
-  if (n.includes("biw") || n.includes("ferrage")) return "biw";
-  if (n.includes("vie serie") || n.includes("vieserie") || /(^|[\s\-_])vs($|[\s\-_])/.test(n)) return "vie_serie";
-  if (n.includes("multi projet") || /(^|[\s\-_])ga($|[\s\-_])/.test(n)) return "ga";
-  return "other";
-};
 
 /* ─── Dynamic monthly chart ────────────────────────── */
 const MOIS_LABELS = ['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Août','Sep','Oct','Nov','Déc'];
@@ -1049,7 +1038,7 @@ function ProcureApp({ currentUser }) {
   const [importDiff, setImportDiff] = useState(null);
   const [showSupplierSidebar, setShowSupplierSidebar] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const [compactProjectNav, setCompactProjectNav] = useState(typeof window !== "undefined" ? window.innerWidth <= 900 : false);
+  const compactProjectNav = useCompactNav(900);
   const [colorLines, setColorLines] = useState(false);
   const [showFournisseurs, setShowFournisseurs] = useState(false);
   const [selectedFournisseur, setSelectedFournisseur] = useState("");
@@ -1088,44 +1077,7 @@ function ProcureApp({ currentUser }) {
   // Use imported data only
   const tableData = importedData || [];
 
-  const projectNavModel = useMemo(() => {
-    const gaNames = new Set();
-    const vieSerieNames = new Set();
-    const biwNames = new Set();
-    const otherMap = new Map();
-    let gaCount = 0;
-    let vieSerieCount = 0;
-    let biwCount = 0;
-
-    tableData.forEach((row) => {
-      const projectName = String(row.nomProjet || "").trim();
-      if (!projectName) return;
-      const family = getProjectFamily(projectName);
-      if (family === "ga") {
-        gaCount += 1;
-        gaNames.add(projectName);
-      } else if (family === "vie_serie") {
-        vieSerieCount += 1;
-        vieSerieNames.add(projectName);
-      } else if (family === "biw") {
-        biwCount += 1;
-        biwNames.add(projectName);
-      } else {
-        otherMap.set(projectName, (otherMap.get(projectName) || 0) + 1);
-      }
-    });
-
-    const otherProjects = Array.from(otherMap.entries())
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => a.name.localeCompare(b.name, "fr"));
-
-    return {
-      ga: { count: gaCount, projects: Array.from(gaNames).sort((a, b) => a.localeCompare(b, "fr")) },
-      vie_serie: { count: vieSerieCount, projects: Array.from(vieSerieNames).sort((a, b) => a.localeCompare(b, "fr")) },
-      biw: { count: biwCount, projects: Array.from(biwNames).sort((a, b) => a.localeCompare(b, "fr")) },
-      other: { count: otherProjects.reduce((sum, p) => sum + p.count, 0), projects: otherProjects },
-    };
-  }, [tableData]);
+  const projectNavModel = useProjectNavModel(tableData);
 
   // Configuration des largeurs de colonnes pour le freeze
   const COL_WIDTHS = {
@@ -1266,62 +1218,7 @@ function ProcureApp({ currentUser }) {
     setSelectedProjectFamily(""); setSelectedOtherProject("");
   };
 
-  const parseAnyDateToTime = (value) => {
-    if (!value) return 0;
-    const raw = String(value).trim();
-    if (!raw) return 0;
-
-    const isoOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (isoOnly) {
-      const [, y, m, d] = isoOnly;
-      const dt = new Date(Number(y), Number(m) - 1, Number(d), 0, 0, 0, 0);
-      return isNaN(dt.getTime()) ? 0 : dt.getTime();
-    }
-
-    const slash = raw.split(" ")[0].split("/");
-    if (slash.length === 3) {
-      const [d, m, y] = slash;
-      const dt = new Date(Number(y), Number(m) - 1, Number(d), 0, 0, 0, 0);
-      return isNaN(dt.getTime()) ? 0 : dt.getTime();
-    }
-
-    const parsed = new Date(raw);
-    return isNaN(parsed.getTime()) ? 0 : parsed.getTime();
-  };
-
-  const toNumberSafe = (v) => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
-  };
-
-  const isRelanceEligible = (row) => {
-    const due = parseAnyDateToTime(row.dateEcheance);
-    if (!due) return false;
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-
-    const qteEcheance = toNumberSafe(row.qteEcheance ?? row.quantiteEcheancee);
-    const qteLivree = toNumberSafe(row.qteLivree ?? row.quantiteLivree);
-    return due < todayStart.getTime() && qteLivree < qteEcheance;
-  };
-
-  const openRelanceEmail = (row) => {
-    const to = row.emailFournisseur || row.email || "";
-    const qteEcheance = row.qteEcheance ?? row.quantiteEcheancee ?? "-";
-    const subject = `[URGENT] Relance Livraison - Projet : ${row.nomProjet || "-"} - Réf : ${row.article || "-"}`;
-    const body = `Bonjour ${row.nomFournisseur || "Fournisseur"},
-
-Nous constatons un retard sur la pièce ${row.designation || "-"} (Code : ${row.article || "-"}).
-Quantité attendue : ${qteEcheance}
-Date d'échéance : ${row.dateEcheance || "-"}
-
-Merci de nous confirmer une nouvelle date de livraison par retour de mail.
-
-Cordialement,
-L'équipe Logistique.`;
-    const mailtoLink = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    window.location.href = mailtoLink;
-  };
+  const { isRelanceEligible, openRelanceEmail } = useRelanceEmail();
 
   // Filtering
   const filtered = tableData.filter(d => {
@@ -1431,12 +1328,6 @@ L'équipe Logistique.`;
     return () => document.head.removeChild(style);
   }, []);
 
-  useEffect(() => {
-    const onResize = () => setCompactProjectNav(window.innerWidth <= 900);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
   return (
     <div style={{ minHeight: "100vh", background: "#f0f2f5", fontFamily: "'DM Sans','Segoe UI',sans-serif", color: "#1a202c" }}>
       {/* ─── TOASTS ──────────────────────────────────── */}
@@ -1456,125 +1347,38 @@ L'équipe Logistique.`;
       }}>
         <span style={{ color: "#fff", fontWeight: 700, fontSize: 20, letterSpacing: 1.5, marginRight: 16 }}>OPERIX</span>
         <div style={{ width: 1, height: 24, background: "#ffffff22", marginRight: 16 }} />
-        <div style={{ display: "flex", gap: 10, flex: 1, justifyContent: "center", overflowX: "auto", padding: "2px 0" }}>
-          {[
-            { key: "ga", title: "PROJET GA", subtitle: "Multi projet", count: projectNavModel.ga.count },
-            { key: "biw", title: "PROJET BIW", subtitle: "Ferrage projet", count: projectNavModel.biw.count },
-            { key: "vie_serie", title: "VIE SÉRIE", subtitle: "Vie série", count: projectNavModel.vie_serie.count },
-          ].map(item => {
-            const active = selectedProjectFamily === item.key;
-            const disabled = item.count === 0;
-            return (
-              <button
-                key={item.key}
-                disabled={disabled}
-                onClick={() => {
-                  const next = active ? "" : item.key;
-                  setSelectedProjectFamily(next);
-                  setSelectedOtherProject("");
-                  setSelectedProjet("");
-                  setSelectedSousProjet("");
-                  setCurrentPage(1);
-                }}
-                style={{
-                  border: "1px solid",
-                  borderColor: active ? "#3b82f6" : "#d1d5db",
-                  background: active ? "#eff6ff" : "#ffffff",
-                  color: disabled ? "#94a3b8" : (active ? "#1e40af" : "#334155"),
-                  borderRadius: 10,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  padding: "8px 14px",
-                  cursor: disabled ? "not-allowed" : "pointer",
-                  opacity: disabled ? 0.6 : 1,
-                  whiteSpace: "nowrap",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 10,
-                }}
-              >
-                <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.1 }}>
-                  <span style={{ fontSize: 14, fontWeight: 700, letterSpacing: 0.2 }}>{item.title}</span>
-                  {!compactProjectNav && (
-                    <span style={{ fontSize: 11, color: active ? "#64748b" : "#9ca3af", fontWeight: 500, marginTop: 2 }}>
-                      {item.subtitle}
-                    </span>
-                  )}
-                </span>
-                <span style={{ fontSize: 11, color: active ? "#1e40af" : "#64748b", background: active ? "#dbeafe" : "#f1f5f9", borderRadius: 999, padding: "2px 8px" }}>
-                  {item.count}
-                </span>
-              </button>
-            );
-          })}
-
-          <div style={{ position: "relative" }}>
-            <button
-              disabled={projectNavModel.other.count === 0}
-              onClick={() => setOpenDropdown(openDropdown === "other-projects" ? "" : "other-projects")}
-              style={{
-                border: "1px solid",
-                borderColor: selectedProjectFamily === "other" ? "#3b82f6" : "#d1d5db",
-                background: selectedProjectFamily === "other" ? "#eff6ff" : "#ffffff",
-                color: projectNavModel.other.count === 0 ? "#94a3b8" : (selectedProjectFamily === "other" ? "#1e40af" : "#334155"),
-                borderRadius: 10,
-                fontSize: 13,
-                fontWeight: 600,
-                padding: "8px 14px",
-                cursor: projectNavModel.other.count === 0 ? "not-allowed" : "pointer",
-                opacity: projectNavModel.other.count === 0 ? 0.6 : 1,
-                whiteSpace: "nowrap",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-              }}
-            >
-              <span style={{ fontSize: 14, fontWeight: 700, letterSpacing: 0.2 }}>AUTRES</span>
-              <span style={{ fontSize: 11, color: selectedProjectFamily === "other" ? "#1e40af" : "#64748b", background: selectedProjectFamily === "other" ? "#dbeafe" : "#f1f5f9", borderRadius: 999, padding: "2px 8px" }}>
-                {projectNavModel.other.count}
-              </span>
-              <span style={{ fontSize: 10 }}>▼</span>
-            </button>
-
-            {openDropdown === "other-projects" && projectNavModel.other.count > 0 && (
-              <>
-                <div onClick={() => setOpenDropdown("")} style={{ position: "fixed", inset: 0, zIndex: 999 }} />
-                <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, minWidth: 260, maxHeight: 320, overflowY: "auto", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, boxShadow: "0 10px 24px rgba(15,23,42,0.12)", zIndex: 1000, padding: 8 }}>
-                  <div
-                    onClick={() => {
-                      setSelectedProjectFamily("other");
-                      setSelectedOtherProject("");
-                      setSelectedProjet("");
-                      setSelectedSousProjet("");
-                      setOpenDropdown("");
-                      setCurrentPage(1);
-                    }}
-                    style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600, color: selectedProjectFamily === "other" && !selectedOtherProject ? "#1e40af" : "#334155", background: selectedProjectFamily === "other" && !selectedOtherProject ? "#eff6ff" : "transparent" }}
-                  >
-                    Tous les autres projets
-                  </div>
-                  {projectNavModel.other.projects.map(p => (
-                    <div
-                      key={p.name}
-                      onClick={() => {
-                        setSelectedProjectFamily("other");
-                        setSelectedOtherProject(p.name);
-                        setSelectedProjet("");
-                        setSelectedSousProjet("");
-                        setOpenDropdown("");
-                        setCurrentPage(1);
-                      }}
-                      style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer", fontSize: 13, color: selectedOtherProject === p.name ? "#1e40af" : "#334155", background: selectedOtherProject === p.name ? "#eff6ff" : "transparent", display: "flex", justifyContent: "space-between", gap: 10 }}
-                    >
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
-                      <span style={{ fontSize: 11, color: "#64748b", background: "#f1f5f9", borderRadius: 999, padding: "1px 8px" }}>{p.count}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+        <TopProjectNav
+          projectNavModel={projectNavModel}
+          selectedProjectFamily={selectedProjectFamily}
+          selectedOtherProject={selectedOtherProject}
+          compactProjectNav={compactProjectNav}
+          openDropdown={openDropdown}
+          setOpenDropdown={setOpenDropdown}
+          onSelectFamily={(key, isActive) => {
+            const next = isActive ? "" : key;
+            setSelectedProjectFamily(next);
+            setSelectedOtherProject("");
+            setSelectedProjet("");
+            setSelectedSousProjet("");
+            setCurrentPage(1);
+          }}
+          onSelectOtherGroup={() => {
+            setSelectedProjectFamily("other");
+            setSelectedOtherProject("");
+            setSelectedProjet("");
+            setSelectedSousProjet("");
+            setOpenDropdown("");
+            setCurrentPage(1);
+          }}
+          onSelectOtherProject={(projectName) => {
+            setSelectedProjectFamily("other");
+            setSelectedOtherProject(projectName);
+            setSelectedProjet("");
+            setSelectedSousProjet("");
+            setOpenDropdown("");
+            setCurrentPage(1);
+          }}
+        />
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <div style={{ position: "relative", cursor: "pointer" }} onClick={showToasts}>
             <span style={{ fontSize: 18 }}>🔔</span>
@@ -1981,7 +1785,7 @@ L'équipe Logistique.`;
             onSearch={s => { setSearch(s); navigateWithHistory("table", ""); setCurrentPage(1); }}
           />}
           {activePage === "profil" && <PageProfil onLogout={() => window.location.reload()} />}
-          {activePage === "imports" && <PageImports
+          {activePage === "imports" && <Suspense fallback={<div style={{ padding: 24, color: "#64748b" }}>Chargement...</div>}><PageImports
             currentUser={currentUser}
             currentData={tableData}
             onImport={(data) => {
@@ -2013,12 +1817,12 @@ L'équipe Logistique.`;
             onNavigateToTable={() => {
               navigateWithHistory("table", "");
             }}
-          />}
+          /></Suspense>}
           {activePage === "export" && <PageExport filteredCount={filtered.length} totalCount={tableData.length} />}
-          {activePage === "graphique" && <PageGraphique data={tableData} />}
-          {activePage === "journal" && <PageJournal importHistory={importHistory} />}
-          {activePage === "otd" && <PageOTD />}
-          {activePage === "rapport-rft" && <PageRFT />}
+          {activePage === "graphique" && <Suspense fallback={<div style={{ padding: 24, color: "#64748b" }}>Chargement...</div>}><PageGraphique data={tableData} /></Suspense>}
+          {activePage === "journal" && <Suspense fallback={<div style={{ padding: 24, color: "#64748b" }}>Chargement...</div>}><PageJournal importHistory={importHistory} /></Suspense>}
+          {activePage === "otd" && <Suspense fallback={<div style={{ padding: 24, color: "#64748b" }}>Chargement...</div>}><PageOTD /></Suspense>}
+          {activePage === "rapport-rft" && <Suspense fallback={<div style={{ padding: 24, color: "#64748b" }}>Chargement...</div>}><PageRFT /></Suspense>}
 
           {activePage === "rapport-impact" && (
             <PageRapportImpact 
@@ -2629,6 +2433,7 @@ L'équipe Logistique.`;
     </div>
   );
 }
+
 
 
 
