@@ -6,6 +6,7 @@ import FicheFournisseur from "./FicheFournisseur";
 import SupplierSidebar from "./SupplierSidebar";
 import SplashScreen from "./SplashScreen";
 import LoginPage from "./LoginPage";
+import WorkflowPage from "./WorkflowPage";
 import TopProjectNav from "./components/layout/TopProjectNav";
 import useProjectNavModel, { getProjectFamily } from "./hooks/useProjectNavModel";
 import useCompactNav from "./hooks/useCompactNav";
@@ -98,7 +99,7 @@ function buildMonthlyData(data) {
 }
 
 /* ─── Dashboard page ────────────────────────────────── */
-function PageDashboard({ data, previousData, importDiff, cumulativeStats, onFilter, onSetFournisseur, onSearch }) {
+function PageDashboard({ data, previousData, importDiff, cumulativeStats, onFilter, onSetFournisseur, onSearch, onCreateWorkflowTask }) {
   const [graphProject, setGraphProject] = useState("Tous");
   const [hiddenSeries, setHiddenSeries] = useState([]);
   const [showComparison, setShowComparison] = useState(true);
@@ -653,10 +654,27 @@ function PageDashboard({ data, previousData, importDiff, cumulativeStats, onFilt
               style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "12px 14px", background: a.bg, borderRadius: 8, borderLeft: `4px solid ${a.color}`, cursor: "pointer", transition: "transform 0.15s" }}
               onMouseEnter={e => e.currentTarget.style.transform = "translateX(4px)"} onMouseLeave={e => e.currentTarget.style.transform = ""}>
                 <span style={{ fontSize: 18, marginTop: -2 }}>{a.icon}</span>
-                <div>
+                <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: "#1a2744", marginBottom: 2 }}>{a.action}</div>
                   <div style={{ fontSize: 12, color: "#64748b" }}>{a.detail}</div>
                 </div>
+                {onCreateWorkflowTask && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onCreateWorkflowTask({
+                        title: a.action,
+                        description: a.detail,
+                        status: "A faire",
+                        sourceLabel: "Action suggérée du dashboard",
+                        sourceSummary: `${a.action} · ${a.detail}`,
+                      });
+                    }}
+                    style={{ alignSelf: "center", padding: "8px 10px", borderRadius: 8, border: "1px solid #bfdbfe", background: "#eff6ff", color: "#1d4ed8", fontWeight: 700, fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" }}
+                  >
+                    Créer tâche
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -1073,6 +1091,14 @@ function ProcureApp({ currentUser }) {
   const [pplrlogComments, setPplrlogComments] = useState({}); // { rowId: [{user, comment}] }
   const [generalComments, setGeneralComments] = useState({}); // { rowId: [{user, comment}] }
   const [cumulativeStats, setCumulativeStats] = useState({ totalCommandes: 0, recues: 0, enRetard: 0, imports: 0 });
+  const [workflowTasks, setWorkflowTasks] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("workflowTasks")) || [];
+    } catch {
+      return [];
+    }
+  });
+  const [workflowComposerRequest, setWorkflowComposerRequest] = useState(null);
 
   // Use imported data only
   const tableData = importedData || [];
@@ -1264,6 +1290,14 @@ function ProcureApp({ currentUser }) {
   }, [selectedProjectFamily, selectedOtherProject]);
 
   useEffect(() => {
+    try {
+      localStorage.setItem("workflowTasks", JSON.stringify(workflowTasks));
+    } catch (e) {
+      console.warn("Failed to save workflowTasks", e);
+    }
+  }, [workflowTasks]);
+
+  useEffect(() => {
     if (tableData.length === 0) return;
     if (selectedProjectFamily === "ga" && projectNavModel.ga.count === 0) setSelectedProjectFamily("");
     if (selectedProjectFamily === "biw" && projectNavModel.biw.count === 0) setSelectedProjectFamily("");
@@ -1288,6 +1322,19 @@ function ProcureApp({ currentUser }) {
     setCurrentPage(1); setPageSize(25); setOpenDropdown(""); setShowFournisseurs(false);
     setSelectedProjectFamily(""); setSelectedOtherProject("");
   };
+
+  const openWorkflowComposer = useCallback((draft = {}) => {
+    const fallbackProject = ["ga", "biw", "vie_serie"].includes(selectedProjectFamily) ? selectedProjectFamily : "ga";
+    const requestedProject = ["ga", "biw", "vie_serie"].includes(draft.project) ? draft.project : fallbackProject;
+    setWorkflowComposerRequest({
+      assignee: currentUser || "Utilisateur",
+      status: "A faire",
+      project: requestedProject,
+      ...draft,
+      project: requestedProject,
+    });
+    navigateWithHistory("workflow", "");
+  }, [currentUser, navigateWithHistory, selectedProjectFamily]);
 
   // Filtering
   const filtered = scopedTableData.filter(d => {
@@ -1370,6 +1417,7 @@ function ProcureApp({ currentUser }) {
 
   const navPageLabel = () => {
     if (activePage === "dashboard") return "Dashboard";
+    if (activePage === "workflow") return "Workflow Operationnel";
     if (activePage === "imports") return "Imports";
     if (activePage === "export") return "Export";
     if (activePage === "graphique") return "Graphique";
@@ -1845,7 +1893,18 @@ function ProcureApp({ currentUser }) {
             onSetFournisseur={f => { setSelectedFournisseur(f); navigateWithHistory("table", ""); setCurrentPage(1); }}
             onSetProjet={p => { setSelectedProjectFamily(""); setSelectedOtherProject(""); setSelectedProjet(p); navigateWithHistory("table", ""); setCurrentPage(1); }}
             onSearch={s => { setSearch(s); navigateWithHistory("table", ""); setCurrentPage(1); }}
+            onCreateWorkflowTask={openWorkflowComposer}
           />}
+          {activePage === "workflow" && (
+            <WorkflowPage
+              tasks={workflowTasks}
+              setTasks={setWorkflowTasks}
+              currentUser={currentUser}
+              composerRequest={workflowComposerRequest}
+              onComposerRequestHandled={() => setWorkflowComposerRequest(null)}
+              initialProjectFilter={["ga", "biw", "vie_serie"].includes(selectedProjectFamily) ? selectedProjectFamily : "all"}
+            />
+          )}
           {activePage === "profil" && <PageProfil onLogout={() => window.location.reload()} />}
           {activePage === "imports" && <Suspense fallback={<div style={{ padding: 24, color: "#64748b" }}>Chargement...</div>}><PageImports
             currentUser={currentUser}
@@ -2204,6 +2263,21 @@ function ProcureApp({ currentUser }) {
                                 onMouseEnter={e => { e.currentTarget.style.background = "#f1f5f9"; e.currentTarget.style.borderColor = "#94a3b8"; }}
                                 onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.borderColor = "#e2e8f0"; }}>
                                 💬
+                              </button>
+                              <button
+                                title="Creer une tache workflow"
+                                onClick={() => openWorkflowComposer({
+                                  title: row.statut === "Retard" ? `Créer une action pour ce retard` : `Action sur ${row.article || row.id}`,
+                                  description: `Suivi opérationnel lié à la ligne ${row.id}${row.article ? ` · Article ${row.article}` : ""}${row.nomFournisseur ? ` · Fournisseur ${row.nomFournisseur}` : ""}.`,
+                                  project: getProjectFamily(row.nomProjet),
+                                  deadline: row.dateEcheance || "",
+                                  sourceLabel: `Ligne ${row.id}${row.article ? ` · ${row.article}` : ""}`,
+                                  sourceSummary: `${row.nomProjet || "Projet non défini"} · ${row.nomFournisseur || "Fournisseur non défini"} · Statut ${row.statut || "N/A"}`,
+                                })}
+                                style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 6, cursor: "pointer", fontSize: 12, padding: "3px 8px", color: "#1d4ed8", transition: "all 0.15s", fontWeight: 700 }}
+                                onMouseEnter={e => { e.currentTarget.style.background = "#dbeafe"; e.currentTarget.style.borderColor = "#93c5fd"; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#bfdbfe"; }}>
+                                🗂️
                               </button>
                             </div>
                           </td>

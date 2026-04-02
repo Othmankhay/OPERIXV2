@@ -92,6 +92,7 @@ export const TOAST_STYLES = {
 
 export const SIDEBAR_ITEMS = [
   { icon: "📊", label: "Dashboard", type: "page", page: "dashboard" },
+  { icon: "🗂️", label: "Workflow Operationnel", type: "page", page: "workflow" },
   { icon: "📋", label: "Table principale", type: "page", page: "table" },
   { icon: "🔽", label: "Filtres", type: "panel", panel: "filtres" },
   { icon: "❄️", label: "Figer le volet", type: "panel", panel: "figer" },
