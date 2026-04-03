@@ -10,8 +10,8 @@ const WORKFLOW_PROJECTS = [
 const TASK_STATUS_META = {
   "A faire": { color: "#64748b", bg: "#f1f5f9", dot: "#94a3b8" },
   "En cours": { color: "#1d4ed8", bg: "#eff6ff", dot: "#3b82f6" },
-  "Termine": { color: "#15803d", bg: "#f0fdf4", dot: "#22c55e" },
-  "Bloque": { color: "#b91c1c", bg: "#fef2f2", dot: "#ef4444" },
+  Termine: { color: "#15803d", bg: "#f0fdf4", dot: "#22c55e" },
+  Bloque: { color: "#b91c1c", bg: "#fef2f2", dot: "#ef4444" },
 };
 
 const EMPTY_TASK = {
@@ -24,7 +24,6 @@ const EMPTY_TASK = {
   project: "ga",
   sourceLabel: "",
   sourceSummary: "",
-  sourceLinkType: "",
 };
 
 const formatProjectLabel = (projectKey) => {
@@ -63,7 +62,10 @@ const formatDateLabel = (dateValue) => {
 };
 
 const normalizeTask = (task) => {
-  const normalizedStatus = task?.status === "Pas commencé" ? "A faire" : task?.status;
+  const rawStatus = task?.status;
+  const normalizedStatus = rawStatus === "Pas commencé" || rawStatus === "Pas commencÃ©"
+    ? "A faire"
+    : rawStatus;
   const safeStatus = TASK_STATUS_META[normalizedStatus] ? normalizedStatus : "A faire";
   const safeProject = ["ga", "biw", "vie_serie"].includes(task?.project) ? task.project : "ga";
   return {
@@ -145,12 +147,13 @@ export default function WorkflowPage({
     blocked: filteredTasks.filter((task) => task.status === "Bloque").length,
   }), [filteredTasks]);
 
-  const kanbanColumns = useMemo(() => (
-    Object.keys(TASK_STATUS_META).map((status) => ({
+  const kanbanColumns = useMemo(
+    () => Object.keys(TASK_STATUS_META).map((status) => ({
       status,
       tasks: filteredTasks.filter((task) => task.status === status),
-    }))
-  ), [filteredTasks]);
+    })),
+    [filteredTasks]
+  );
 
   const openCreateModal = () => {
     setForm({
@@ -197,9 +200,7 @@ export default function WorkflowPage({
 
   const updateTaskStatus = (taskId, status) => {
     setTasks((prev) => prev.map((task) => (
-      task.id === taskId
-        ? { ...task, status, updatedAt: new Date().toISOString() }
-        : task
+      task.id === taskId ? { ...task, status, updatedAt: new Date().toISOString() } : task
     )));
   };
 
@@ -254,9 +255,7 @@ export default function WorkflowPage({
           </select>
         </div>
 
-        {task.description && (
-          <div style={{ fontSize: 13, color: "#475569", lineHeight: 1.55 }}>{task.description}</div>
-        )}
+        {task.description && <div style={{ fontSize: 13, color: "#475569", lineHeight: 1.55 }}>{task.description}</div>}
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           <span style={{ fontSize: 12, fontWeight: 600, color: "#334155", background: "#f8fafc", padding: "6px 10px", borderRadius: 10 }}>
@@ -303,7 +302,7 @@ export default function WorkflowPage({
       <div style={{ background: "linear-gradient(135deg, #10233f 0%, #183b63 60%, #245c7c 100%)", color: "#fff", borderRadius: 24, padding: 24, marginBottom: 20, boxShadow: "0 18px 40px rgba(15,23,42,0.14)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 1.1, textTransform: "uppercase", color: "#93c5fd", marginBottom: 10 }}>Workflow Operationnel</div>
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 1.1, textTransform: "uppercase", color: "#93c5fd", marginBottom: 10 }}>Workflow</div>
             <div style={{ fontSize: 28, fontWeight: 800, lineHeight: 1.2, marginBottom: 8 }}>Pilotage collaboratif des actions terrain</div>
             <div style={{ maxWidth: 760, fontSize: 14, lineHeight: 1.6, color: "#dbeafe" }}>
               Suivez les actions GA, BIW et VIE SERIE dans une vue claire, mobile-friendly et persistee. Chaque tache garde son contexte operationnel, son responsable et son urgence.
@@ -445,7 +444,7 @@ export default function WorkflowPage({
                 <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a" }}>{form.id ? "Modifier la tache" : "Nouvelle tache"}</div>
                 <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Formulaire simple, rapide et utilisable aussi bien au bureau que sur mobile.</div>
               </div>
-              <button onClick={closeEditor} style={{ width: 38, height: 38, borderRadius: 999, border: "1px solid #e2e8f0", background: "#fff", cursor: "pointer", fontSize: 18, color: "#64748b" }}>x</button>
+              <button onClick={closeEditor} style={{ width: 38, height: 38, borderRadius: 999, border: "1px solid #e2e8f0", background: "#fff", cursor: "pointer", fontSize: 18, color: "#64748b" }}>×</button>
             </div>
 
             <div style={{ padding: 22, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>

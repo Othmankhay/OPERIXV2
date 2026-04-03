@@ -920,17 +920,41 @@ function PageRapportImpact({
                   <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>{row.idIbaVc}</td>
                   <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>{row.nCtmqBa}</td>
                   <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>{row.article}</td>
-                  <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>{row.designation}</td>
+                  <td style={{ padding: "10px 16px", maxWidth: 220 }}>
+                    <div title={row.designation} style={{ overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", maxWidth: 220 }}>{row.designation}</div>
+                  </td>
                   <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>{row.codeFonction}</td>
                   <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>{row.codeFournisseur}</td>
-                  <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>{row.nomFournisseur}</td>
+                  <td style={{ padding: "10px 16px", maxWidth: 180 }}>
+                    <div title={row.nomFournisseur} style={{ overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", maxWidth: 180 }}>{row.nomFournisseur}</div>
+                  </td>
                   <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>{row.psaId}</td>
                   <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>{row.utilisateurPSA}</td>
                   <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>{row.magasin}</td>
                   <td style={{ padding: "10px 16px", whiteSpace: "nowrap", textAlign: "right" }}>{row.quantiteNecessaire}</td>
                   
                   <td style={{ padding: "10px 16px", whiteSpace: "nowrap", color: isOverdueEngagement ? "#dc2626" : "inherit", fontWeight: isOverdueEngagement ? 700 : 400 }}>{row.dateEngagement}</td>
-                  <td style={{ padding: "10px 16px", whiteSpace: "nowrap", color: isOverdueEch ? "#dc2626" : "inherit", fontWeight: isOverdueEch ? 700 : 400 }}>{row.dateEchLundi}</td>
+                  <td style={{ padding: "10px 16px", whiteSpace: "nowrap", color: isOverdueEch ? "#dc2626" : "inherit", fontWeight: isOverdueEch ? 700 : 400 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span>{row.dateEchLundi || row.dateEcheance}</span>
+                      {row._mergedCount > 1 && (
+                        <span
+                          title={`${row._mergedCount} échéances groupées — cliquer pour voir le détail`}
+                          onClick={e => {
+                            e.stopPropagation();
+                            setMergedDatesModal({
+                              rowId: row.id,
+                              title: row.designation || row.article || row.id,
+                              project: row.nomProjet || "",
+                              echeances: row._mergedEcheances || [],
+                            });
+                          }}
+                          style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", background: "#3b82f6", color: "#fff", fontWeight: 700, fontSize: 10, borderRadius: 10, padding: "1px 6px", userSelect: "none" }}>
+                          +{row._mergedCount - 1}
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   
                   <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 20, background: sc.bg, color: sc.color, fontWeight: 600, fontSize: 11 }}>
@@ -939,7 +963,7 @@ function PageRapportImpact({
                   </td>
                   <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>{row.dateLivraisonConfirmee}</td>
                   
-                  <td style={{ padding: "10px 16px", minWidth: 200 }}>
+                  <td style={{ padding: "10px 16px", minWidth: 200, maxWidth: 260 }}>
                     {isEditing ? (
                       <input ref={editRef} autoFocus defaultValue={val}
                         style={{ width: "100%", padding: "6px 10px", borderRadius: 6, border: "1.5px solid #3b82f6", background: "#eff6ff", fontSize: 13, outline: "none" }}
@@ -947,7 +971,8 @@ function PageRapportImpact({
                         onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") handleEditEnd(row.id, field, e.key === "Escape" ? val : e.target.value); }} />
                     ) : (
                       <div onClick={() => handleEditStart(row.id, field)}
-                        style={{ cursor: "pointer", padding: "6px 10px", borderRadius: 6, border: "1px solid transparent", transition: "all 0.15s", minHeight: 30, display: "flex", alignItems: "center" }}
+                        title={val || ""}
+                        style={{ cursor: "pointer", padding: "6px 10px", borderRadius: 6, border: "1px solid transparent", transition: "all 0.15s", minHeight: 30, maxHeight: 56, overflow: "hidden", wordBreak: "break-word", whiteSpace: "normal", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}
                         onMouseEnter={e => { e.currentTarget.style.border = "1px solid #cbd5e1"; }}
                         onMouseLeave={e => { e.currentTarget.style.border = "1px solid transparent"; }}>
                         {val || <span style={{ color: "#94a3b8", fontStyle: "italic", fontSize: 12 }}>Cliquer pour commenter... ✏️</span>}
@@ -1062,6 +1087,7 @@ function ProcureApp({ currentUser }) {
   const [selectedFournisseur, setSelectedFournisseur] = useState("");
   const [ficheFournisseur, setFicheFournisseur] = useState(null);
   const [frozenUpTo, setFrozenUpTo] = useState("");
+  const [mergedDatesModal, setMergedDatesModal] = useState(null);
   const [importHistory, setImportHistory] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("importHistory")) || [];
@@ -1084,6 +1110,7 @@ function ProcureApp({ currentUser }) {
   const [historyModal, setHistoryModal]     = useState(null); // rowId or null
   const [pplrlogModal, setPplrlogModal]     = useState(null); // rowId or null
   const [commentsModal, setCommentsModal]   = useState(null); // rowId or null
+  const [openRowActionMenu, setOpenRowActionMenu] = useState(null);
   const [historySearch, setHistorySearch]   = useState("");
   const [pplrlogInput, setPplrlogInput]     = useState("");
   const [commentsInput, setCommentsInput]   = useState("");
@@ -1106,6 +1133,9 @@ function ProcureApp({ currentUser }) {
   const projectNavModel = useProjectNavModel(tableData);
   const compactProjectNav = useCompactNav(900);
   const { isRelanceEligible, openRelanceEmail } = useRelanceEmail();
+  const sidebarExpandedWidth = compactProjectNav ? 188 : 204;
+  const sidebarCollapsedWidth = compactProjectNav ? 48 : 56;
+  const sidePanelWidth = activePanel ? (activePanel === "rapport-impact" ? 280 : 250) : 0;
 
   const applyProjectScope = useCallback((rows) => {
     if (!rows || rows.length === 0) return [];
@@ -1417,7 +1447,7 @@ function ProcureApp({ currentUser }) {
 
   const navPageLabel = () => {
     if (activePage === "dashboard") return "Dashboard";
-    if (activePage === "workflow") return "Workflow Operationnel";
+    if (activePage === "workflow") return "Workflow";
     if (activePage === "imports") return "Imports";
     if (activePage === "export") return "Export";
     if (activePage === "graphique") return "Graphique";
@@ -1432,7 +1462,7 @@ function ProcureApp({ currentUser }) {
   // inline keyframes
   useEffect(() => {
     const style = document.createElement("style");
-    style.textContent = `@keyframes slideIn{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}@keyframes fadeProjectA{from{opacity:.82}to{opacity:1}}@keyframes fadeProjectB{from{opacity:.82}to{opacity:1}}`;
+    style.textContent = `@keyframes slideIn{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}@keyframes fadeProjectA{from{opacity:.82}to{opacity:1}}@keyframes fadeProjectB{from{opacity:.82}to{opacity:1}}@keyframes slideInLeft{from{transform:translateX(-18px);opacity:0}to{transform:translateX(0);opacity:1}}`;
     document.head.appendChild(style);
     return () => document.head.removeChild(style);
   }, []);
@@ -1547,16 +1577,37 @@ function ProcureApp({ currentUser }) {
         {/* Sidebar (FIXED) */}
         <div style={{ 
           position: "fixed", top: 52, left: 0, height: "calc(100vh - 52px)", 
-          width: sidebarOpen ? 220 : 56, transition: "width 0.25s cubic-bezier(0.4,0,0.2,1)", 
+          width: sidebarOpen ? sidebarExpandedWidth : sidebarCollapsedWidth,
+          transition: "width 0.25s cubic-bezier(0.4,0,0.2,1), box-shadow 0.25s ease",
           background: "#fff", borderRight: "1px solid #e2e8f0", boxShadow: "2px 0 8px rgba(0,0,0,0.04)", 
-          zIndex: 200, display: "flex", flexDirection: "column", overflowY: "auto", overflowX: "hidden" 
+          zIndex: 200, display: "flex", flexDirection: "column", overflowY: "auto", overflowX: "hidden",
+          paddingTop: 8
         }}>
-          <div style={{ display: "flex", justifyContent: "flex-end", padding: 8 }}>
-            <button onClick={() => { setSidebarOpen(!sidebarOpen); if (sidebarOpen) setActivePanel(""); }}
-              style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, cursor: "pointer", padding: "4px 8px", fontSize: 13, color: "#64748b" }}>
-              {sidebarOpen ? "◀" : "▶"}
-            </button>
-          </div>
+          <button onClick={() => { setSidebarOpen(!sidebarOpen); if (sidebarOpen) setActivePanel(""); }}
+            aria-label={sidebarOpen ? "Reduire le panel" : "Agrandir le panel"}
+            style={{
+              position: "absolute",
+              top: "50%",
+              right: -14,
+              transform: "translateY(-50%)",
+              width: 28,
+              height: 52,
+              borderRadius: 999,
+              border: "1px solid #dbe2ea",
+              background: "#ffffff",
+              boxShadow: "0 8px 18px rgba(15,23,42,0.08)",
+              cursor: "pointer",
+              fontSize: 13,
+              color: "#64748b",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 210,
+              transition: "transform 0.2s ease, background 0.2s ease"
+            }}>
+            {sidebarOpen ? "◀" : "▶"}
+          </button>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: sidebarOpen ? "0 8px 8px 8px" : "0 4px 8px 4px" }}>
           {SIDEBAR_ITEMS.map(item => {
             const isActive = item.type === "page" ? activePage === item.page && !activePanel : activePanel === item.panel;
             return (
@@ -1564,16 +1615,17 @@ function ProcureApp({ currentUser }) {
                 if (item.type === "page") { navigateWithHistory(item.page, ""); }
                 else { setActivePanel(activePanel === item.panel ? "" : item.panel); navigateWithHistory("table", activePanel === item.panel ? "" : item.panel); }
               }} style={{
-                display: "flex", alignItems: "center", gap: 10, padding: sidebarOpen ? "10px 16px" : "10px 0",
+                display: "flex", alignItems: "center", gap: 10, padding: sidebarOpen ? "9px 12px" : "9px 0",
                 cursor: "pointer", background: isActive ? "#eff6ff" : "transparent",
                 borderLeft: isActive ? "3px solid #3b82f6" : "3px solid transparent",
-                color: isActive ? "#1e40af" : "#475569", fontWeight: isActive ? 600 : 400, fontSize: 14,
-                transition: "all 0.15s", justifyContent: sidebarOpen ? "flex-start" : "center"
+                color: isActive ? "#1e40af" : "#475569", fontWeight: isActive ? 600 : 500, fontSize: 13,
+                transition: "all 0.18s ease", justifyContent: sidebarOpen ? "flex-start" : "center",
+                borderRadius: 10
               }}
               onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = "#f8fafc"; }}
               onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
-                <span style={{ fontSize: 16 }}>{item.icon}</span>
-                {sidebarOpen && <span style={{ whiteSpace: "nowrap" }}>{item.label}</span>}
+                <span style={{ fontSize: 15, minWidth: 18, textAlign: "center" }}>{item.icon}</span>
+                {sidebarOpen && <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.label}</span>}
               </div>
             );
           })}
@@ -1581,7 +1633,7 @@ function ProcureApp({ currentUser }) {
           {/* Sub-project items — visible only when a specific sous-projet is selected */}
           {selectedSousProjet && (
             <>
-              {sidebarOpen && <div style={{ padding: "12px 16px 4px", fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5, borderTop: "1px solid #e2e8f0", marginTop: 4 }}>📂 {selectedSousProjet}</div>}
+              {sidebarOpen && <div style={{ padding: "10px 12px 4px", fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5, borderTop: "1px solid #e2e8f0", marginTop: 6 }}>📂 {selectedSousProjet}</div>}
               {[
                 { icon: "📊", label: "Rapport d'impact", type: "special", page: "rapport-impact", panel: "rapport-impact" },
                 { icon: "🔴", label: "Pièces manquantes", type: "panel", panel: "rapport-manquants" },
@@ -1595,30 +1647,32 @@ function ProcureApp({ currentUser }) {
                     else if (item.type === "page") { navigateWithHistory(item.page, ""); }
                     else { setActivePanel(activePanel === item.panel ? "" : item.panel); navigateWithHistory("table", activePanel === item.panel ? "" : item.panel); }
                   }} style={{
-                    display: "flex", alignItems: "center", gap: 10, padding: sidebarOpen ? "8px 16px 8px 28px" : "10px 0",
+                    display: "flex", alignItems: "center", gap: 10, padding: sidebarOpen ? "8px 12px 8px 22px" : "9px 0",
                     cursor: "pointer", background: isActive ? "#eff6ff" : "transparent",
                     borderLeft: isActive ? "3px solid #3b82f6" : "3px solid transparent",
-                    color: isActive ? "#1e40af" : "#64748b", fontWeight: isActive ? 600 : 400, fontSize: 13,
-                    transition: "all 0.15s", justifyContent: sidebarOpen ? "flex-start" : "center"
+                    color: isActive ? "#1e40af" : "#64748b", fontWeight: isActive ? 600 : 500, fontSize: 12,
+                    transition: "all 0.18s ease", justifyContent: sidebarOpen ? "flex-start" : "center",
+                    borderRadius: 10
                   }}
                   onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = "#f8fafc"; }}
                   onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
                     <span style={{ fontSize: 14 }}>{item.icon}</span>
-                    {sidebarOpen && <span style={{ whiteSpace: "nowrap" }}>{item.label}</span>}
+                    {sidebarOpen && <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.label}</span>}
                   </div>
                 );
               })}
             </>
           )}
+          </div>
         </div>
 
         {/* Side Panel (Fixed to sidebar) */}
         {activePanel && (
           <div style={{ 
-            position: "fixed", top: 52, left: sidebarOpen ? 220 : 56, height: "calc(100vh - 52px)",
+            position: "fixed", top: 52, left: sidebarOpen ? sidebarExpandedWidth : sidebarCollapsedWidth, height: "calc(100vh - 52px)",
             width: activePanel === "rapport-impact" ? 280 : 250, borderRight: "1px solid #e2e8f0", 
             background: "#fff", display: "flex", flexDirection: "column", 
-            animation: "slideInLeft 0.3s ease-out", padding: 16, zIndex: 195, 
+            animation: "slideInLeft 0.3s ease-out", padding: 14, zIndex: 195, 
             boxShadow: "2px 0 8px rgba(0,0,0,0.02)", overflowY: "auto"
           }}>
 
@@ -1875,7 +1929,7 @@ function ProcureApp({ currentUser }) {
         {/* Main Content Area with dynamic margin to compensate for fixed sidebar/panel */}
         <div style={{ 
           flex: 1, display: "flex", flexDirection: "column", overflow: "hidden",
-          marginLeft: (sidebarOpen ? 220 : 56) + (activePanel ? (activePanel === "rapport-impact" ? 280 : 250) : 0),
+          marginLeft: (sidebarOpen ? sidebarExpandedWidth : sidebarCollapsedWidth) + sidePanelWidth,
           transition: "margin-left 0.25s cubic-bezier(0.4,0,0.2,1)",
           animation: `${projectFadeAlt ? "fadeProjectA" : "fadeProjectB"} 180ms ease`
         }}>
@@ -2214,7 +2268,8 @@ function ProcureApp({ currentUser }) {
                                       onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") handleEditEnd(row.id, field, e.key === "Escape" ? val : e.target.value); }} />
                                   ) : (
                                     <div onClick={() => handleEditStart(row.id, field)}
-                                      style={{ cursor: "pointer", padding: "4px 8px", borderRadius: 6, border: "1px solid transparent", transition: "all 0.15s", minHeight: 28, display: "flex", alignItems: "center" }}
+                                      title={val || ""}
+                                      style={{ cursor: "pointer", padding: "4px 8px", borderRadius: 6, border: "1px solid transparent", transition: "all 0.15s", minHeight: 28, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: colWidth - 24 }}
                                       onMouseEnter={e => { e.currentTarget.style.border = "1px solid #cbd5e1"; }}
                                       onMouseLeave={e => { e.currentTarget.style.border = "1px solid transparent"; }}>
                                       {val || <span style={{ color: "#94a3b8", fontStyle: "italic", fontSize: 12 }}>Cliquer pour commenter... ✏️</span>}
@@ -2223,62 +2278,134 @@ function ProcureApp({ currentUser }) {
                                 </td>
                               );
                             }
-                            return <td key={key} style={cellStyle}>{row[key]}</td>;
+                            if (key === "dateEcheance" && row._mergedCount > 1) {
+                              return (
+                                <td key={key} style={cellStyle}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                    <span>{row[key]}</span>
+                                    <span
+                                      title={`${row._mergedCount} échéances groupées — cliquer pour voir le détail`}
+                                      onClick={e => {
+                                        e.stopPropagation();
+                                        setMergedDatesModal({
+                                          rowId: row.id,
+                                          title: row.designation || row.article || row.id,
+                                          project: row.nomProjet || "",
+                                          echeances: row._mergedEcheances || [],
+                                        });
+                                      }}
+                                      style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", background: "#3b82f6", color: "#fff", fontWeight: 700, fontSize: 10, borderRadius: 10, padding: "1px 6px", userSelect: "none" }}>
+                                      +{row._mergedCount - 1}
+                                    </span>
+                                  </div>
+                                </td>
+                              );
+                            }
+                            const cellVal = row[key];
+                            const cellText = cellVal != null ? String(cellVal) : "";
+                            return (
+                              <td key={key} style={cellStyle}>
+                                <div title={cellText} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: colWidth - 28 }}>{cellVal}</div>
+                              </td>
+                            );
                           })}
-                          <td style={{ padding: "10px 14px", borderBottom: colorLines ? `1px solid ${sc.dot}22` : "1px solid #f1f5f9", whiteSpace: "nowrap" }}>
-                            <div style={{ display: "flex", gap: 4 }}>
-                              {relanceEligible && (
-                                <button
-                                  title="Relancer par email"
-                                  onClick={() => openRelanceEmail(row)}
-                                  style={{ background: "#fff7ed", border: "1px solid #fdba74", borderRadius: 6, cursor: "pointer", fontSize: 12, padding: "3px 8px", color: "#c2410c", transition: "all 0.15s", fontWeight: 700 }}
-                                  onMouseEnter={e => { e.currentTarget.style.background = "#ffedd5"; e.currentTarget.style.borderColor = "#fb923c"; }}
-                                  onMouseLeave={e => { e.currentTarget.style.background = "#fff7ed"; e.currentTarget.style.borderColor = "#fdba74"; }}>
-                                  ✉️ Relancer
-                                </button>
-                              )}
-                              {/* Historique */}
+                          <td style={{ padding: "10px 14px", borderBottom: colorLines ? `1px solid ${sc.dot}22` : "1px solid #f1f5f9", whiteSpace: "nowrap", position: "relative", overflow: "visible" }}>
+                            <div style={{ position: "relative", width: 164 }}>
                               <button
-                                title="Afficher l'historique de la ligne"
-                                onClick={() => { setHistoryModal(row.id); setHistorySearch(""); }}
-                                style={{ background: "none", border: "1px solid #e2e8f0", borderRadius: 6, cursor: "pointer", fontSize: 14, padding: "3px 7px", color: "#64748b", transition: "all 0.15s" }}
-                                onMouseEnter={e => { e.currentTarget.style.background = "#f1f5f9"; e.currentTarget.style.borderColor = "#94a3b8"; }}
-                                onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.borderColor = "#e2e8f0"; }}>
-                                🕐
+                                title="Ouvrir les actions de la ligne"
+                                onClick={() => setOpenRowActionMenu(openRowActionMenu === row.id ? null : row.id)}
+                                style={{
+                                  width: "100%",
+                                  padding: "8px 12px",
+                                  borderRadius: 10,
+                                  border: "1px solid #dbe2ea",
+                                  background: openRowActionMenu === row.id ? "#eff6ff" : "#fff",
+                                  color: openRowActionMenu === row.id ? "#1d4ed8" : "#475569",
+                                  cursor: "pointer",
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  gap: 8,
+                                  transition: "all 0.18s ease",
+                                }}>
+                                <span>Actions</span>
+                                <span style={{ fontSize: 10 }}>{openRowActionMenu === row.id ? "▲" : "▶"}</span>
                               </button>
-                              {/* PPL RLOG */}
-                              <button
-                                title="Voir les PPL RLOG Commentaires"
-                                onClick={() => { setPplrlogModal(row.id); setPplrlogInput(""); }}
-                                style={{ background: "none", border: "1px solid #e2e8f0", borderRadius: 6, cursor: "pointer", fontSize: 14, padding: "3px 7px", color: "#64748b", transition: "all 0.15s" }}
-                                onMouseEnter={e => { e.currentTarget.style.background = "#f1f5f9"; e.currentTarget.style.borderColor = "#94a3b8"; }}
-                                onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.borderColor = "#e2e8f0"; }}>
-                                📋
-                              </button>
-                              {/* Commentaires généraux */}
-                              <button
-                                title="Voir les commentaires"
-                                onClick={() => { setCommentsModal(row.id); setCommentsInput(""); }}
-                                style={{ background: "none", border: "1px solid #e2e8f0", borderRadius: 6, cursor: "pointer", fontSize: 14, padding: "3px 7px", color: "#64748b", transition: "all 0.15s" }}
-                                onMouseEnter={e => { e.currentTarget.style.background = "#f1f5f9"; e.currentTarget.style.borderColor = "#94a3b8"; }}
-                                onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.borderColor = "#e2e8f0"; }}>
-                                💬
-                              </button>
-                              <button
-                                title="Creer une tache workflow"
-                                onClick={() => openWorkflowComposer({
-                                  title: row.statut === "Retard" ? `Créer une action pour ce retard` : `Action sur ${row.article || row.id}`,
-                                  description: `Suivi opérationnel lié à la ligne ${row.id}${row.article ? ` · Article ${row.article}` : ""}${row.nomFournisseur ? ` · Fournisseur ${row.nomFournisseur}` : ""}.`,
-                                  project: getProjectFamily(row.nomProjet),
-                                  deadline: row.dateEcheance || "",
-                                  sourceLabel: `Ligne ${row.id}${row.article ? ` · ${row.article}` : ""}`,
-                                  sourceSummary: `${row.nomProjet || "Projet non défini"} · ${row.nomFournisseur || "Fournisseur non défini"} · Statut ${row.statut || "N/A"}`,
-                                })}
-                                style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 6, cursor: "pointer", fontSize: 12, padding: "3px 8px", color: "#1d4ed8", transition: "all 0.15s", fontWeight: 700 }}
-                                onMouseEnter={e => { e.currentTarget.style.background = "#dbeafe"; e.currentTarget.style.borderColor = "#93c5fd"; }}
-                                onMouseLeave={e => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#bfdbfe"; }}>
-                                🗂️
-                              </button>
+
+                              <div
+                                style={{
+                                  position: "absolute",
+                                  top: 0,
+                                  right: 0,
+                                  width: 220,
+                                  maxWidth: "calc(100vw - 48px)",
+                                  background: "#ffffff",
+                                  border: "1px solid #dbe2ea",
+                                  borderRadius: 14,
+                                  boxShadow: "0 18px 40px rgba(15,23,42,0.16)",
+                                  padding: 10,
+                                  zIndex: openRowActionMenu === row.id ? 40 : -1,
+                                  opacity: openRowActionMenu === row.id ? 1 : 0,
+                                  transform: openRowActionMenu === row.id ? "translateX(12px)" : "translateX(-10px)",
+                                  pointerEvents: openRowActionMenu === row.id ? "auto" : "none",
+                                  transition: "transform 0.22s ease, opacity 0.22s ease",
+                                }}
+                              >
+                                <div style={{ fontSize: 11, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.4, padding: "2px 4px 8px" }}>
+                                  Selectionner l'action a faire
+                                </div>
+                                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                  {relanceEligible && (
+                                    <button
+                                      onClick={() => { openRelanceEmail(row); setOpenRowActionMenu(null); }}
+                                      style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #fdba74", background: "#fff7ed", color: "#c2410c", fontWeight: 700, fontSize: 12, cursor: "pointer", textAlign: "left" }}
+                                    >
+                                      <span>✉️</span>
+                                      <span>Relancer</span>
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => { setHistoryModal(row.id); setHistorySearch(""); setOpenRowActionMenu(null); }}
+                                    style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #e2e8f0", background: "#fff", color: "#475569", fontWeight: 700, fontSize: 12, cursor: "pointer", textAlign: "left" }}
+                                  >
+                                    <span>🕐</span>
+                                    <span>Historique</span>
+                                  </button>
+                                  <button
+                                    onClick={() => { setPplrlogModal(row.id); setPplrlogInput(""); setOpenRowActionMenu(null); }}
+                                    style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #e2e8f0", background: "#fff", color: "#475569", fontWeight: 700, fontSize: 12, cursor: "pointer", textAlign: "left" }}
+                                  >
+                                    <span>📋</span>
+                                    <span>PPL RLOG</span>
+                                  </button>
+                                  <button
+                                    onClick={() => { setCommentsModal(row.id); setCommentsInput(""); setOpenRowActionMenu(null); }}
+                                    style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #e2e8f0", background: "#fff", color: "#475569", fontWeight: 700, fontSize: 12, cursor: "pointer", textAlign: "left" }}
+                                  >
+                                    <span>💬</span>
+                                    <span>Commentaires</span>
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      openWorkflowComposer({
+                                        title: row.statut === "Retard" ? `Créer une action pour ce retard` : `Action sur ${row.article || row.id}`,
+                                        description: `Suivi opérationnel lié à la ligne ${row.id}${row.article ? ` · Article ${row.article}` : ""}${row.nomFournisseur ? ` · Fournisseur ${row.nomFournisseur}` : ""}.`,
+                                        project: getProjectFamily(row.nomProjet),
+                                        deadline: row.dateEcheance || "",
+                                        sourceLabel: `Ligne ${row.id}${row.article ? ` · ${row.article}` : ""}`,
+                                        sourceSummary: `${row.nomProjet || "Projet non défini"} · ${row.nomFournisseur || "Fournisseur non défini"} · Statut ${row.statut || "N/A"}`,
+                                      });
+                                      setOpenRowActionMenu(null);
+                                    }}
+                                    style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #bfdbfe", background: "#eff6ff", color: "#1d4ed8", fontWeight: 700, fontSize: 12, cursor: "pointer", textAlign: "left" }}
+                                  >
+                                    <span>🗂️</span>
+                                    <span>Creer une tache</span>
+                                  </button>
+                                </div>
+                              </div>
                             </div>
                           </td>
                         </tr>
@@ -2566,6 +2693,44 @@ function ProcureApp({ currentUser }) {
           </div>
         );
       })()}
+
+      {mergedDatesModal && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 999, background: "rgba(15,23,42,0.42)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, animation: "fadeProjectA 0.18s ease" }}
+          onClick={() => setMergedDatesModal(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 460, maxWidth: "95vw", background: "#fff", borderRadius: 18, border: "1px solid #dbeafe", boxShadow: "0 24px 60px rgba(15,23,42,0.22)", overflow: "hidden", animation: "slideIn 0.22s ease" }}
+          >
+            <div style={{ padding: "18px 20px", background: "linear-gradient(135deg,#eff6ff 0%,#f8fbff 100%)", borderBottom: "1px solid #dbeafe", display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: "#1e3a8a", marginBottom: 4 }}>Detail des echeances</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>{mergedDatesModal.title}</div>
+                {mergedDatesModal.project && <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{mergedDatesModal.project}</div>}
+              </div>
+              <button onClick={() => setMergedDatesModal(null)} style={{ width: 34, height: 34, borderRadius: 999, border: "1px solid #bfdbfe", background: "#fff", color: "#1e40af", cursor: "pointer", fontSize: 18 }}>×</button>
+            </div>
+
+            <div style={{ padding: 20 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {(mergedDatesModal.echeances || []).map((item, idx) => (
+                  <div key={`${mergedDatesModal.rowId}-${idx}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 12, background: idx % 2 === 0 ? "#f8fafc" : "#eff6ff", border: "1px solid #dbeafe" }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", fontWeight: 700, marginBottom: 4 }}>Date d'echeance</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>{item.dateEcheance || "—"}</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", fontWeight: 700, marginBottom: 4 }}>Quantite</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: "#1d4ed8" }}>{item.quantiteEcheancee} u.</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -107,6 +107,49 @@ function detectDuplicates(mappedRows, currentData) {
   return { dupes, fresh, dupeIds: new Set(dupes.map(r => String(r.id))) };
 }
 
+/* ─── Smart merge: group by docAchat+article10+article ─────────────── */
+function mergeRows(rows) {
+  const groups = new Map();
+  rows.forEach(row => {
+    // Only merge when all 3 keys are non-empty
+    const docAchat  = String(row.documentAchat  || "").trim();
+    const art10     = String(row.article10       || "").trim();
+    const art       = String(row.article         || "").trim();
+    const key = (docAchat && art10 && art)
+      ? `${docAchat}||${art10}||${art}`
+      : `__unique__${row.id}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  });
+
+  const merged = [];
+  groups.forEach(group => {
+    if (group.length === 1) {
+      merged.push(group[0]);
+      return;
+    }
+    // Sort so the most recent dateEcheance is first (primary display date)
+    const sorted = [...group].sort((a, b) => {
+      const da = a.dateEcheance ? new Date(a.dateEcheance).getTime() : 0;
+      const db = b.dateEcheance ? new Date(b.dateEcheance).getTime() : 0;
+      return db - da;
+    });
+    const primary = { ...sorted[0] };
+    // Sum quantities across all echéances
+    primary.quantiteEcheancee = group.reduce((s, r) => s + (Number(r.quantiteEcheancee) || 0), 0);
+    primary.quantiteLivree    = group.reduce((s, r) => s + (Number(r.quantiteLivree)    || 0), 0);
+    // Store detail of all echéances for the expandable panel
+    primary._mergedEcheances = group.map(r => ({
+      id: r.id,
+      dateEcheance: r.dateEcheance,
+      quantiteEcheancee: r.quantiteEcheancee,
+    }));
+    primary._mergedCount = group.length;
+    merged.push(primary);
+  });
+  return merged;
+}
+
 /* ─── Mapping function ─────────────────────────────────────────────── */
 const buildMapping = (excelHeaders) => {
   const result = {};
@@ -162,12 +205,29 @@ const DATE_FIELDS = [
   "dateTransfertPegase","confirmeDate","dateEchLundi","dateAjout","dateArchivage",
 ];
 
+const normalizeProjectName = (value) =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
+const mapProjectCategory = (value) => {
+  const normalized = normalizeProjectName(value);
+  if (!normalized) return value;
+  if (normalized.includes("multi projet")) return "PROJET GA";
+  if (normalized.includes("ferrage")) return "PROJET BIW";
+  if (normalized.includes("vie serie")) return "VIE SERIE";
+  return value;
+};
+
 const mapRow = (row, mapping, index) => {
   const mapped = {};
   FIELD_MAP.forEach(f => {
     const excelCol = mapping[f.key];
     mapped[f.key] = excelCol ? (row[excelCol] ?? "") : "";
   });
+  mapped.nomProjet = mapProjectCategory(mapped.nomProjet);
   // Normalize date fields
   DATE_FIELDS.forEach(f => { mapped[f] = normalizeDate(mapped[f]); });
   // Normalize numeric fields
@@ -517,6 +577,7 @@ export default function PageImports({ onImport, currentData, currentUser }) {
     let finalRows = fileInfo.mappedRows;
     if (importMode === "skip_dupes") finalRows = fileInfo.dupeInfo.fresh;
     // "all" and "update_dupes" keep all rows
+    finalRows = mergeRows(finalRows);
     let statut = "Succès";
     try {
       onImport(finalRows);
