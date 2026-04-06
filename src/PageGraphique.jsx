@@ -82,6 +82,103 @@ export default function PageGraphique({ data = [] }) {
 
   const yLabels = [1, 0.75, 0.5, 0.25, 0].map(r => Math.round(maxVal * r));
 
+  const exportChartAsPng = () => {
+    const svgW = 880;
+    const marginLeft = 56, marginTop = 54, chartW = 780, chartH = 270;
+    const barGroupW = chartW / WEEKS.length;
+    const barW = barGroupW * 0.52;
+
+    // Bars
+    let bars = '';
+    WEEKS.forEach((w, wi) => {
+      const barX = marginLeft + wi * barGroupW + (barGroupW - barW) / 2;
+      let yBase = marginTop + chartH;
+      STATUTS.forEach(st => {
+        if (!visibleStatuts.includes(st)) return;
+        const val = WEEKLY_DATA[st][wi];
+        if (!val) return;
+        const h = (val / (maxVal || 1)) * chartH;
+        const sc = STATUT_CONFIG[st];
+        bars += `<rect x="${barX.toFixed(1)}" y="${(yBase - h).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${sc.bg}" stroke="${sc.dot}" stroke-width="0.8" rx="2"/>`;
+        yBase -= h;
+      });
+      bars += `<text x="${(marginLeft + wi * barGroupW + barGroupW / 2).toFixed(1)}" y="${marginTop + chartH + 18}" text-anchor="middle" font-size="12" fill="#475569" font-weight="600">${w}</text>`;
+    });
+
+    // Grid + Y labels
+    let grid = '';
+    yLabels.forEach((v, idx) => {
+      const y = marginTop + (idx / (yLabels.length - 1)) * chartH;
+      grid += `<line x1="${marginLeft}" y1="${y.toFixed(1)}" x2="${marginLeft + chartW}" y2="${y.toFixed(1)}" stroke="#e2e8f0" stroke-width="0.8"/>`;
+      grid += `<text x="${marginLeft - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="#94a3b8">${v}</text>`;
+    });
+
+    // Pink curve
+    const pts = WEEKS.map((_, wi) => ({
+      x: marginLeft + (wi + 0.5) * barGroupW,
+      y: marginTop + chartH - (curvePointsData[wi] / (maxVal || 1)) * chartH,
+    }));
+    let pathD = '';
+    pts.forEach((pt, wi) => {
+      if (wi === 0) { pathD += `M ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`; return; }
+      const prev = pts[wi - 1];
+      const cpX = ((prev.x + pt.x) / 2).toFixed(1);
+      pathD += ` C ${cpX} ${prev.y.toFixed(1)}, ${cpX} ${pt.y.toFixed(1)}, ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`;
+    });
+    const dots = pts.map((pt, wi) =>
+      curvePointsData[wi] > 0
+        ? `<circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="6" fill="#fff" stroke="#ec4899" stroke-width="2.5"/>`
+        : ''
+    ).join('');
+
+    // Legend
+    const legendY = marginTop + chartH + 42;
+    const colCount = 5;
+    const colW = svgW / colCount;
+    const legendItems = STATUTS.map((st, idx) => {
+      const sc = STATUT_CONFIG[st];
+      const lx = (idx % colCount) * colW + 10;
+      const ly = legendY + Math.floor(idx / colCount) * 24;
+      return `<rect x="${lx}" y="${ly}" width="12" height="12" fill="${sc.dot}" rx="2"/><text x="${lx + 16}" y="${ly + 10}" font-size="12" fill="#1a2744">${st}</text>`;
+    }).join('');
+    const legendRows = Math.ceil(STATUTS.length / colCount);
+    const curveRow = legendY + legendRows * 24;
+    const totalSvgH = curveRow + 32;
+
+    const date = new Date().toLocaleDateString('fr-FR');
+    const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${totalSvgH}">
+<rect width="${svgW}" height="${totalSvgH}" fill="#ffffff"/>
+<text x="20" y="32" font-size="17" font-weight="700" fill="#1a2744">Graphique de suivi par statut</text>
+<text x="${svgW - 10}" y="32" font-size="11" fill="#94a3b8" text-anchor="end">Export du ${date}</text>
+<rect x="${marginLeft}" y="${marginTop}" width="${chartW}" height="${chartH}" fill="#f8fafc" rx="4"/>
+${grid}${bars}<line x1="${marginLeft}" y1="${marginTop}" x2="${marginLeft}" y2="${marginTop + chartH}" stroke="#cbd5e1" stroke-width="2"/>
+<line x1="${marginLeft}" y1="${marginTop + chartH}" x2="${marginLeft + chartW}" y2="${marginTop + chartH}" stroke="#cbd5e1" stroke-width="2"/>
+<path d="${pathD}" fill="none" stroke="#ec4899" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+${dots}${legendItems}<line x1="10" y1="${curveRow + 6}" x2="28" y2="${curveRow + 6}" stroke="#ec4899" stroke-width="3" stroke-linecap="round"/>
+<text x="32" y="${curveRow + 10}" font-size="12" fill="#ec4899" font-weight="700">Courbe Total</text>
+</svg>`;
+
+    const blob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = svgW * 2;
+      canvas.height = totalSvgH * 2;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(2, 2);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, svgW, totalSvgH);
+      ctx.drawImage(img, 0, 0, svgW, totalSvgH);
+      URL.revokeObjectURL(url);
+      const a = document.createElement('a');
+      a.download = `graphique_statuts_${new Date().toISOString().split('T')[0]}.png`;
+      a.href = canvas.toDataURL('image/png');
+      a.click();
+    };
+    img.src = url;
+  };
+
   return (
     <div style={{ display: "flex", width: "100%", overflow: "hidden" }}>
       {data.length === 0 ? (
@@ -104,6 +201,15 @@ export default function PageGraphique({ data = [] }) {
                 transition: "all 0.2s"
               }}>{p}</button>
             ))}
+            <div style={{ width: 1, background: "#e2e8f0", margin: "0 4px" }} />
+            <button onClick={exportChartAsPng} style={{
+              padding: "6px 14px", borderRadius: 8, border: "1px solid #fbcfe8", cursor: "pointer",
+              background: "#fdf2f8", color: "#be185d", fontWeight: 600, fontSize: 13, transition: "all 0.2s",
+              display: "flex", alignItems: "center", gap: 5,
+            }}
+              onMouseEnter={e => { e.currentTarget.style.background = "#ec4899"; e.currentTarget.style.color = "#fff"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "#fdf2f8"; e.currentTarget.style.color = "#be185d"; }}
+            >📸 PNG</button>
             <div style={{ width: 1, background: "#e2e8f0", margin: "0 4px" }} />
             <button onClick={() => setShowFilters(!showFilters)} style={{
               padding: "6px 14px", borderRadius: 8, border: "1px solid #e2e8f0", cursor: "pointer",
