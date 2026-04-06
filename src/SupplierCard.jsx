@@ -31,12 +31,16 @@ export default function SupplierCard({ supplier, onClick, fields }) {
   // Recherche date d'échéance la plus proche (si plusieurs)
   // (Ici, on suppose dateEcheance est déjà la plus proche)
 
-  // Icônes actions (stub, à relier plus tard)
-  const actions = [
-    { icon: "📜", label: "Historique", onClick: e => { e.stopPropagation(); /* TODO */ } },
-    { icon: "📦", label: "PPL RLOG", onClick: e => { e.stopPropagation(); /* TODO */ } },
-    { icon: "💬", label: "Commentaires", onClick: e => { e.stopPropagation(); /* TODO */ } },
-  ];
+  // Icônes actions - à implémenter suite à l'intégration du module de gestion d'actions
+  // Les actions suivantes sont en attente :
+  // - Historique : Afficher l'historique des interactions fournisseur
+  // - PPL RLOG : Lien vers le système de log PPL
+  // - Commentaires : Ouverture du module de commentaires fournisseur
+  // const actions = [
+  //   { icon: "📜", label: "Historique", onClick: e => { /* TODO */ } },
+  //   { icon: "📦", label: "PPL RLOG", onClick: e => { /* TODO */ } },
+  //   { icon: "💬", label: "Commentaires", onClick: e => { /* TODO */ } },
+  // ];
 
   return (
     <div
@@ -109,40 +113,6 @@ export default function SupplierCard({ supplier, onClick, fields }) {
             <div style={{ fontSize: 11, color: "#64748b", fontWeight: 500 }}>{f}</div>
             <div style={{ fontSize: 15, fontWeight: 600, color: "#1a2744" }}>{rest[f]}</div>
           </div>
-        ))}
-      </div>
-      {/* Footer actions */}
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 8 }}>
-        {actions.map(a => (
-          <button
-            key={a.label}
-            title={a.label}
-            tabIndex={-1}
-            onClick={a.onClick}
-            style={{
-              background: "#f8fafc",
-              border: "1px solid #e2e8f0",
-              borderRadius: 8,
-              fontSize: 18,
-              width: 38,
-              height: 38,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              transition: "background 0.15s, border 0.15s"
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.background = "#e0e7ef";
-              e.currentTarget.style.borderColor = "#3b82f6";
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.background = "#f8fafc";
-              e.currentTarget.style.borderColor = "#e2e8f0";
-            }}
-          >
-            {a.icon}
-          </button>
         ))}
       </div>
     </div>

@@ -1,6 +1,6 @@
 ﻿import { useState, useCallback, useEffect } from "react";
 import * as XLSX from "xlsx";
-import { detectNewStatuses as _, generateStatusMappingReport, getStatusColor } from "./statusColorManager";
+import { generateStatusMappingReport, getStatusColor } from "./statusColorManager";
 
 /* ─── Field mapping configuration ──────────────────────────────────── */
 /* Aliases list starts with the EXACT Excel column name from the real file */
@@ -569,58 +569,80 @@ export default function PageImports({ onImport, currentData, currentUser }) {
   }, [importFileMode, multiFiles, processFile, processMultipleFiles]);
 
   const confirmerImport = () => {
-    if (!fileInfo) {
-      return;
-    }
+    if (!fileInfo) return;
     setError("");
 
-    let finalRows = fileInfo.mappedRows;
-    if (importMode === "skip_dupes") finalRows = fileInfo.dupeInfo.fresh;
-    // "all" and "update_dupes" keep all rows
-    finalRows = mergeRows(finalRows);
-    let statut = "Succès";
     try {
-      onImport(finalRows);
-    } catch {
-      statut = "Échec";
+      let finalRows = fileInfo.mappedRows;
+      if (importMode === "skip_dupes") finalRows = fileInfo.dupeInfo.fresh;
+      // "all" and "update_dupes" keep all rows
+      finalRows = mergeRows(Array.isArray(finalRows) ? finalRows : []);
+
+      if (!Array.isArray(finalRows) || finalRows.length === 0) {
+        setError("Aucune donnée valide à importer après le traitement.");
+        return;
+      }
+
+      let statut = "Succès";
+      try {
+        onImport(finalRows);
+      } catch (importErr) {
+        statut = "Échec";
+        console.error("[Import] Erreur dans onImport:", importErr);
+      }
+
+      // Generate status color mapping report
+      let report = null;
+      try {
+        report = generateStatusMappingReport(finalRows);
+      } catch (e) {
+        console.warn("[Import] generateStatusMappingReport a échoué:", e);
+      }
+      setStatusMappingReport(report);
+
+      const now = new Date();
+      const pad = n => String(n).padStart(2, "0");
+      const datetime = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+      const ext = fileInfo.isCombined ? "COMBINED" : fileInfo.fileName.split(".").pop().toUpperCase();
+
+      let journal = "";
+      try {
+        journal = generateJournal(fileInfo, currentData, importMode);
+      } catch (e) {
+        console.warn("[Import] generateJournal a échoué:", e);
+        journal = "Journal indisponible";
+      }
+
+      const newEntry = {
+        id:         Date.now(),
+        fileName:   fileInfo.fileName,
+        fileType:   ext,
+        lignes:     finalRows.length,
+        colonnes:   Object.keys(fileInfo.mapping).length,
+        datetime,
+        uploadPar:  currentUser || "—",
+        statut,
+        journal,
+        score:      Math.round((Object.keys(fileInfo.mapping).length / FIELD_MAP.length) * 100),
+        dupes:      fileInfo.dupeInfo.dupes.length,
+        errors:     fileInfo.validation.errorCount,
+        mode:       importMode,
+        isCombined: fileInfo.isCombined,
+        sourceFiles: fileInfo.sourceFiles,
+        statusReport: report,
+      };
+
+      setImportHistory(prev => {
+        const updated = [newEntry, ...prev];
+        try { localStorage.setItem("importHistory", JSON.stringify(updated)); } catch (_) {}
+        return updated;
+      });
+      setFileInfo(null);
+      setStep(0);
+    } catch (err) {
+      console.error("[Import] Erreur inattendue dans confirmerImport:", err);
+      setError("Erreur lors de l'import : " + (err?.message || "Erreur inconnue"));
     }
-    
-    // Generate status color mapping report
-    const report = generateStatusMappingReport(finalRows);
-    setStatusMappingReport(report);
-    
-    const now = new Date();
-    const pad = n => String(n).padStart(2, "0");
-    const datetime = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
-    const ext = fileInfo.isCombined ? "COMBINED" : fileInfo.fileName.split(".").pop().toUpperCase();
-    const journal = generateJournal(fileInfo, currentData, importMode);
-
-    const newEntry = {
-      id:         Date.now(),
-      fileName:   fileInfo.fileName,
-      fileType:   ext,
-      lignes:     finalRows.length,
-      colonnes:   Object.keys(fileInfo.mapping).length,
-      datetime,
-      uploadPar:  currentUser || "—",
-      statut,
-      journal,
-      score:      Math.round((Object.keys(fileInfo.mapping).length / FIELD_MAP.length) * 100),
-      dupes:      fileInfo.dupeInfo.dupes.length,
-      errors:     fileInfo.validation.errorCount,
-      mode:       importMode,
-      isCombined: fileInfo.isCombined,
-      sourceFiles: fileInfo.sourceFiles,
-      statusReport: report,
-    };
-
-    setImportHistory(prev => {
-      const updated = [newEntry, ...prev];
-      localStorage.setItem("importHistory", JSON.stringify(updated));
-      return updated;
-    });
-    setFileInfo(null);
-    setStep(0);
   };
 
   const annuler = () => { 

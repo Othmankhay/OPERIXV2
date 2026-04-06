@@ -1,0 +1,29 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   OPERIX — MOBILE RESPONSIVE STYLES
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Reset zoom for phones ─────────────────────────────────────────── */
+@media screen and (max-width: 479px) {
+  body { zoom: 1 !important; }
+}
+
+/* ── Prevent iOS auto-zoom on input focus ──────────────────────────── */
+input, select, textarea {
+  font-size: 16px !important;
+}
+
+/* ── Touch-friendly targets on mobile ──────────────────────────────── */
+@media screen and (max-width: 768px) {
+  button { min-height: 40px; touch-action: manipulation; }
+  input, select { min-height: 40px; }
+}
+
+/* ── Smooth touch scrolling ────────────────────────────────────────── */
+.scrollable {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Landscape compact ─────────────────────────────────────────────── */
+@media screen and (orientation: landscape) and (max-height: 500px) {
+  body { zoom: 0.85 !important; }
+}

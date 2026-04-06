@@ -1,4 +1,5 @@
 ﻿import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } from "react";
+import * as XLSX from "xlsx";
 import { STATUT_CONFIG, ALL_COLUMNS, DEFAULT_VISIBLE, TOAST_CONFIGS, TOAST_STYLES, SIDEBAR_ITEMS } from "./config";
 import { getStatusColor, getAllStatusColors } from "./statusColorManager";
 import ColumnSelectionModal from "./ColumnManager";
@@ -11,6 +12,7 @@ import TopProjectNav from "./components/layout/TopProjectNav";
 import useProjectNavModel, { getProjectFamily } from "./hooks/useProjectNavModel";
 import useCompactNav from "./hooks/useCompactNav";
 import useRelanceEmail from "./hooks/useRelanceEmail";
+import ErrorBoundary from "./ErrorBoundary";
 
 const PageGraphique = lazy(() => import("./PageGraphique"));
 const PageJournal = lazy(() => import("./PageJournal"));
@@ -554,10 +556,7 @@ function PageDashboard({ data, previousData, importDiff, cumulativeStats, onFilt
         const monday = new Date(currentWeekStart);
         let calTotal = 0, calConf = 0, calRisk = 0;
 
-        console.log("📅 Calendar debug:");
-        console.log("- Current week:", toLocalDateKey(new Date(currentWeekStart)), "to", toLocalDateKey(new Date(currentWeekEnd)));
-        console.log("- Filtered data length:", filteredData.length);
-        console.log("- Graph project filter:", graphProject);
+        // Calendar debug logging removed in production cleanup
 
         for (let i = 0; i < 5; i++) {
           const dayDate = new Date(monday);
@@ -685,13 +684,85 @@ function PageDashboard({ data, previousData, importDiff, cumulativeStats, onFilt
 }
 
 /* ─── Export page ────────────────────────────────────── */
-function PageExport({ filteredCount, totalCount }) {
+function PageExport({ filteredCount, totalCount, filteredData, allData }) {
+  const exportToCSV = (data, filename) => {
+    if (!data || data.length === 0) return;
+    const headers = Object.keys(data[0]);
+    const csvContent = [
+      headers.join(','),
+      ...data.map(row => headers.map(header => {
+        const value = row[header];
+        // Escape quotes and wrap in quotes if contains comma, quote, or newline
+        if (typeof value === 'string' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
+          return '"' + value.replace(/"/g, '""') + '"';
+        }
+        return value;
+      }).join(','))
+    ].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    link.click();
+  };
+
+  const exportToExcel = (data, filename) => {
+    if (!data || data.length === 0) return;
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Data');
+    XLSX.writeFile(wb, filename);
+  };
+
+  const exportGraphMode = (data, filename) => {
+    if (!data || data.length === 0) return;
+    
+    // Aggregate data for graph export
+    const statusCounts = {};
+    const fournisseurCounts = {};
+    const projetCounts = {};
+    
+    data.forEach(row => {
+      // Status aggregation
+      const status = row.statut || 'Non défini';
+      statusCounts[status] = (statusCounts[status] || 0) + 1;
+      
+      // Fournisseur aggregation
+      const fournisseur = row.nomFournisseur || 'Non défini';
+      fournisseurCounts[fournisseur] = (fournisseurCounts[fournisseur] || 0) + 1;
+      
+      // Projet aggregation
+      const projet = row.nomProjet || 'Non défini';
+      projetCounts[projet] = (projetCounts[projet] || 0) + 1;
+    });
+    
+    // Create summary sheets
+    const summaryData = [
+      { Section: 'Statuts', Total: Object.keys(statusCounts).length },
+      ...Object.entries(statusCounts).map(([status, count]) => ({ Statut: status, Nombre: count })),
+      { Section: '', Total: '' },
+      { Section: 'Fournisseurs', Total: Object.keys(fournisseurCounts).length },
+      ...Object.entries(fournisseurCounts).map(([fournisseur, count]) => ({ Fournisseur: fournisseur, Nombre: count })),
+      { Section: '', Total: '' },
+      { Section: 'Projets', Total: Object.keys(projetCounts).length },
+      ...Object.entries(projetCounts).map(([projet, count]) => ({ Projet: projet, Nombre: count }))
+    ];
+    
+    const ws = XLSX.utils.json_to_sheet(summaryData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Analyse Graphique');
+    XLSX.writeFile(wb, filename);
+  };
+
   const cards = [
-    { icon: "📋", title: "Vue actuelle", lines: filteredCount, desc: "Exporter les lignes actuellement filtrées" },
-    { icon: "📊", title: "Table globale", lines: totalCount, desc: "Exporter toutes les lignes de la table" },
-    { icon: "📁", title: "Toutes les tables", lines: totalCount, desc: "Exporter l'ensemble des données" },
-    { icon: "🕐", title: "Historique des lignes", lines: totalCount, desc: "Exporter l'historique complet" },
+    { icon: "📋", title: "Vue actuelle", lines: filteredCount, desc: "Exporter les lignes actuellement filtrées", data: filteredData },
+    { icon: "📊", title: "Table globale", lines: totalCount, desc: "Exporter toutes les lignes de la table", data: allData },
+    { icon: "📁", title: "Toutes les tables", lines: totalCount, desc: "Exporter l'ensemble des données", data: allData },
+    { icon: "🕐", title: "Historique des lignes", lines: totalCount, desc: "Exporter l'historique complet", data: allData },
+    { icon: "📈", title: "Mode Graphique", lines: totalCount, desc: "Export professionnel avec analyses graphiques", data: allData, isGraph: true }
   ];
+
   return (
     <div style={{ padding: 24 }}>
       <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1a2744", marginBottom: 20 }}>📤 Export</h2>
@@ -703,11 +774,35 @@ function PageExport({ filteredCount, totalCount }) {
             <div style={{ fontSize: 13, color: "#3b82f6", fontWeight: 600, marginBottom: 6 }}>{c.lines} lignes</div>
             <div style={{ fontSize: 13, color: "#64748b", marginBottom: 14 }}>{c.desc}</div>
             <div style={{ display: "flex", gap: 8 }}>
-              {[{ label: "📄 CSV", bg: "#f0f4ff", hoverBg: "#1a2744" }, { label: "📗 Excel", bg: "#f0fdf4", hoverBg: "#16a34a" }].map(btn => (
-                <button key={btn.label} style={{ flex: 1, padding: "8px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: btn.bg, cursor: "pointer", fontWeight: 600, fontSize: 13, color: "#1a2744", transition: "all 0.2s" }}
-                  onMouseEnter={e => { e.currentTarget.style.background = btn.hoverBg; e.currentTarget.style.color = "#fff"; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = btn.bg; e.currentTarget.style.color = "#1a2744"; }}>{btn.label}</button>
-              ))}
+              {c.isGraph ? (
+                <button 
+                  style={{ flex: 1, padding: "8px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#fef3c7", cursor: "pointer", fontWeight: 600, fontSize: 13, color: "#1a2744", transition: "all 0.2s" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "#f59e0b"; e.currentTarget.style.color = "#fff"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "#fef3c7"; e.currentTarget.style.color = "#1a2744"; }}
+                  onClick={() => exportGraphMode(c.data, `${c.title.replace(/\s+/g, '_')}_Graphique.xlsx`)}
+                >
+                  📊 Excel Graphique
+                </button>
+              ) : (
+                <>
+                  <button 
+                    style={{ flex: 1, padding: "8px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#f0f4ff", cursor: "pointer", fontWeight: 600, fontSize: 13, color: "#1a2744", transition: "all 0.2s" }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "#1a2744"; e.currentTarget.style.color = "#fff"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "#f0f4ff"; e.currentTarget.style.color = "#1a2744"; }}
+                    onClick={() => exportToCSV(c.data, `${c.title.replace(/\s+/g, '_')}.csv`)}
+                  >
+                    📄 CSV
+                  </button>
+                  <button 
+                    style={{ flex: 1, padding: "8px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#f0fdf4", cursor: "pointer", fontWeight: 600, fontSize: 13, color: "#1a2744", transition: "all 0.2s" }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "#16a34a"; e.currentTarget.style.color = "#fff"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "#f0fdf4"; e.currentTarget.style.color = "#1a2744"; }}
+                    onClick={() => exportToExcel(c.data, `${c.title.replace(/\s+/g, '_')}.xlsx`)}
+                  >
+                    📗 Excel
+                  </button>
+                </>
+              )}
             </div>
           </div>
         ))}
@@ -1960,23 +2055,18 @@ function ProcureApp({ currentUser }) {
             />
           )}
           {activePage === "profil" && <PageProfil onLogout={() => window.location.reload()} />}
-          {activePage === "imports" && <Suspense fallback={<div style={{ padding: 24, color: "#64748b" }}>Chargement...</div>}><PageImports
+          {activePage === "imports" && <ErrorBoundary><Suspense fallback={<div style={{ padding: 24, color: "#64748b" }}>Chargement...</div>}><PageImports
             currentUser={currentUser}
             currentData={tableData}
             onImport={(data) => {
-              console.log("📥 Import received:", data.length, "items");
-              console.log("📅 Sample imported data:");
-              data.slice(0, 3).forEach((d, i) => {
-                console.log(`  Item ${i+1}:`, {
-                  id: d.id,
-                  dateEcheance: d.dateEcheance,
-                  nomProjet: d.nomProjet,
-                  statut: d.statut
-                });
-              });
-
+              if (!Array.isArray(data) || data.length === 0) {
+                console.error("[App] onImport: données invalides", data);
+                return;
+              }
+              // Import logging removed in production cleanup
               const prev = importedData || [];
-              const diff = computeDiff(prev, data);
+              let diff = { added: [], modified: [], newRetards: [] };
+              try { diff = computeDiff(prev, data); } catch (e) { console.warn("[App] computeDiff a échoué:", e); }
               setPreviousData(prev);
               setImportDiff(diff);
               setImportedData(data);
@@ -1992,8 +2082,8 @@ function ProcureApp({ currentUser }) {
             onNavigateToTable={() => {
               navigateWithHistory("table", "");
             }}
-          /></Suspense>}
-          {activePage === "export" && <PageExport filteredCount={filtered.length} totalCount={scopedTableData.length} />}
+          /></Suspense></ErrorBoundary>}
+          {activePage === "export" && <PageExport filteredCount={filtered.length} totalCount={scopedTableData.length} filteredData={filtered} allData={scopedTableData} />}
           {activePage === "graphique" && <Suspense fallback={<div style={{ padding: 24, color: "#64748b" }}>Chargement...</div>}><PageGraphique data={scopedTableData} /></Suspense>}
           {activePage === "journal" && <Suspense fallback={<div style={{ padding: 24, color: "#64748b" }}>Chargement...</div>}><PageJournal importHistory={importHistory} /></Suspense>}
           {activePage === "otd" && <Suspense fallback={<div style={{ padding: 24, color: "#64748b" }}>Chargement...</div>}><PageOTD /></Suspense>}
